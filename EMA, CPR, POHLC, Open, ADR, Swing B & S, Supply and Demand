@@ -1,0 +1,910 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © vinothblr2015
+//@version=6
+indicator("EMA, CPR, POHLC, Open, ADR, Swing B & S, Supply and Demand", overlay=true)
+
+// === User Inputs ===
+// --- 3 EMA Section ---
+show3EMA = input.bool(false, title="Show 3 EMA", group="======== 3 EMA ========")
+emaSrc = input.source(close, title="EMA Source", group="======== 3 EMA ========")
+ema1Len = input.int(20, title="EMA 1", group="======== 3 EMA ========")
+ema2Len = input.int(50, title="EMA 2", group="======== 3 EMA ========")
+ema3Len = input.int(200, title="EMA 3", group="======== 3 EMA ========")
+
+// --- Additional MA Section ---
+showAddMA = input.bool(false, title="Show Additional MA", group="----------MA variance ----------")
+maType = input.string("SMA", title="MA Type:", options=["SMA", "EMA", "WMA", "VWMA"], group="----------MA variance ----------")
+maPeriod = input.int(200, title="MA Period", group="----------MA variance ----------")
+
+// === MA Calculations ===
+ema1 = ta.ema(emaSrc, ema1Len)
+ema2 = ta.ema(emaSrc, ema2Len)
+ema3 = ta.ema(emaSrc, ema3Len)
+
+ma = switch maType
+    "SMA" => ta.sma(emaSrc, maPeriod)
+    "EMA" => ta.ema(emaSrc, maPeriod)
+    "WMA" => ta.wma(emaSrc, maPeriod)
+    "VWMA" => ta.vwma(emaSrc, maPeriod)
+
+// === Plotting ===
+plot(show3EMA ? ema1 : na, color=color.green, title="EMA 1", linewidth=3, style=plot.style_line)
+plot(show3EMA ? ema2 : na, color=color.red, title="EMA 2", linewidth=3, style=plot.style_line)
+plot(show3EMA ? ema3 : na, color=color.black, title="EMA 3", linewidth=3, style=plot.style_line)
+
+plot(showAddMA ? ma : na, color=color.black, title="Additional MA", linewidth=2, style=plot.style_circles)
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// === General Settings ===
+//Interlinked for CPR and dayopen
+show_labels = input.bool(true, title="Show Labels", group="General")
+show_prices = input.bool(true, title="Show Prices", group="General")
+label_position = input.string("Right", title="Label Position", options=["Left", "Right"], group="General")
+extend_option = input.string("None", title="Extend Line", options=["None", "Left", "Right", "Both"], group="General")
+session_open_line_width = input.int(2, minval=1, maxval=10, title="Line Width", group="General")
+
+// === CPR Settings ===
+showDailyCPR    = input.bool(false, title="Show Daily CPR", group="======== Pivot Boss CPR ========")
+showWeeklyCPR   = input.bool(false, title="Show Weekly CPR", group="======== Pivot Boss CPR ========")
+showRS234       = input.bool(false, title="Show R / S Level 2,3,4", group="======== Pivot Boss CPR ========")
+showWeeklyRS    = input.bool(false, title="Show Weekly R / S Level 1,2,3,4", group="======== Pivot Boss CPR ========")
+showPrevOHLC    = input.bool(false, title="Show Previous Day OHLC", group="======== Pivot Boss CPR ========")
+showWeeklyOHLC  = input.bool(false, title="Show Previous Week OHLC", group="======== Pivot Boss CPR ========")
+
+// === Drawing Functions ===
+////Interlinked for CPR and dayopen
+drawLine(price, _text, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices) =>
+    fLineStyle = switch lineStyle
+        "Dotted" => line.style_dotted
+        "Dashed" => line.style_dashed
+        => line.style_solid
+
+    fLineExtend = switch lineExtend
+        "Left" => extend.left
+        "Right" => extend.right
+        "Both" => extend.both
+        => extend.none
+
+    endOfDay = time_tradingday + 105000000
+    aLine = line.new(x1=time_tradingday, y1=price, x2=endOfDay, y2=price, xloc=xloc.bar_time, color=lineColor, style=fLineStyle, extend=fLineExtend, width=lineWidth)
+    line.delete(aLine[1])
+
+    fText = _text
+    if showLabels and showPrices
+        fText := str.format("{0} - {1}", _text, math.round_to_mintick(price))
+    else if showPrices
+        fText := str.tostring(math.round_to_mintick(price))
+
+    labelXPos = label_position == "Left" ? time_tradingday : endOfDay
+    if showLabels or showPrices
+        aLabel = label.new(labelXPos, price, xloc=xloc.bar_time, text=fText, textcolor=lineColor, style=label.style_none, size=size.small)
+        label.delete(aLabel[1])
+
+// === Daily Data ===
+dClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+dOpen  = request.security(syminfo.tickerid, "D", open[1], lookahead=barmerge.lookahead_on)
+dHigh  = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+dLow   = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+
+// === Weekly Data ===
+wClose = request.security(syminfo.tickerid, "W", close[1], lookahead=barmerge.lookahead_on)
+wOpen  = request.security(syminfo.tickerid, "W", open[1], lookahead=barmerge.lookahead_on)
+wHigh  = request.security(syminfo.tickerid, "W", high[1], lookahead=barmerge.lookahead_on)
+wLow   = request.security(syminfo.tickerid, "W", low[1], lookahead=barmerge.lookahead_on)
+
+// === CPR Calculations ===
+dPivot = (dHigh + dLow + dClose) / 3
+dBC    = (dHigh + dLow) / 2
+dTC    = 2 * dPivot - dBC
+dR1    = 2 * dPivot - dLow
+dS1    = 2 * dPivot - dHigh
+dR2    = dPivot + (dHigh - dLow)
+dS2    = dPivot - (dHigh - dLow)
+dR3    = dHigh + 2 * (dPivot - dLow)
+dS3    = dLow - 2 * (dHigh - dPivot)
+dR4    = dR3 + (dR2 - dR1)
+dS4    = dS3 - (dS1 - dS2)
+
+wPivot = (wHigh + wLow + wClose) / 3
+wBC    = (wHigh + wLow) / 2
+wTC    = 2 * wPivot - wBC
+wR1    = 2 * wPivot - wLow
+wS1    = 2 * wPivot - wHigh
+wR2    = wPivot + (wHigh - wLow)
+wS2    = wPivot - (wHigh - wLow)
+wR3    = wHigh + 2 * (wPivot - wLow)
+wS3    = wLow - 2 * (wHigh - wPivot)
+wR4    = wR3 + (wR2 - wR1)
+wS4    = wS3 - (wS1 - wS2)
+
+// === Draw Levels ===
+if showDailyCPR
+    drawLine(dPivot, "D-Pivot", color.blue, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dBC, "D-BC", color.fuchsia, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dTC, "D-TC", color.fuchsia, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dR1, "D-R1", color.green, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dS1, "D-S1", color.red, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+
+if showRS234
+    drawLine(dR2, "D-R2", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dR3, "D-R3", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dR4, "D-R4", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS2, "D-S2", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS3, "D-S3", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS4, "D-S4", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+
+if showWeeklyCPR
+    drawLine(wPivot, "W-Pivot", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(wBC, "W-BC", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(wTC, "W-TC", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+
+if showWeeklyRS
+    drawLine(wR1, "W-R1", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR2, "W-R2", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR3, "W-R3", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR4, "W-R4", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS1, "W-S1", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS2, "W-S2", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS3, "W-S3", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS4, "W-S4", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+
+if showPrevOHLC
+    drawLine(dOpen,  "Prev Open",  color.yellow, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dHigh,  "Prev High",  color.green, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dLow,   "Prev Low",   color.red, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dClose, "Prev Close", color.rgb(0, 0, 0), "Dashed", extend_option, 2, show_labels, show_prices)
+
+if showWeeklyOHLC
+    drawLine(wOpen,  "W-Open",  color.yellow, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wHigh,  "W-High",  color.green, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wLow,   "W-Low",   color.red, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wClose, "W-Close", color.rgb(0, 0, 0), "Dotted", extend_option, 3, show_labels, show_prices)
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// Intraday Open
+//High Low Code Added below by Vinoth S
+
+
+
+show_day_open = input.bool(defval=true, title="Show Current Day", group="Session Open")
+session_open_color = input.color(defval=color.red, title="Line Color", group="Session Open")
+session_open_line_style = input.string(defval="Dashed", title="Line Style", options=["Solid", "Dotted", "Dashed"], group="Session Open")
+
+
+
+// Functions
+getAllTimeHigh() =>
+    h  = 0.0
+    h := bar_index == 0 ? high : high > h[1] ? high : h[1]
+
+getAllTimeLow() =>
+    l = 0.0
+    l := bar_index == 0 ? low  : low < l[1] ? low  : l[1]
+
+get_resolution() =>
+    resolution = "M"
+    if timeframe.isintraday
+        resolution := timeframe.multiplier <= 15 ? "D" : "W"
+    else if timeframe.isweekly or timeframe.ismonthly
+        resolution := "12M"
+    resolution
+
+//drawLine(price, _text, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices) =>  // Added lineWidth parameter
+
+
+
+drawOpen(show, resolution, labelText, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices) =>  // Added lineWidth parameter
+    _open = request.security(syminfo.tickerid, resolution, open)
+    if show
+        drawLine(_open, labelText, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices)
+
+
+
+// Session Open
+drawOpen(show_day_open, "D", "D-Open", session_open_color, session_open_line_style, extend_option, session_open_line_width, show_labels, show_prices)  // Pass lineWidth here
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//Accurate Swing Buy and Sell code
+
+
+// === Inputs ===
+no = input.int(3, title="Swing")
+showBuySell = input.bool(false, title="Show Buy/Sell Labels")
+showTSLLine = input.bool(true, title="Show TSL Line")
+showBarColor = input.bool(false, title="Enable Barcolor")
+showBgColor = input.bool(false, title="Enable Bgcolor")
+
+// === Calculations ===
+res = ta.highest(high, no)
+sup = ta.lowest(low, no)
+avd = close > res[1] ? 1 : close < sup[1] ? -1 : 0
+avn = ta.valuewhen(avd != 0, avd, 0)
+tsl = avn == 1 ? sup : res
+
+Buy = ta.crossover(close, tsl)
+Sell = ta.crossunder(close, tsl)
+
+colr = close >= tsl ? color.green : close <= tsl ? color.red : na
+
+// === Plotting ===
+plotshape(showBuySell and Buy, "BUY", shape.labelup, location.belowbar, color=color.green, text="BUY", textcolor=color.black)
+plotshape(showBuySell and Sell, "SELL", shape.labeldown, location.abovebar, color=color.red, text="SELL", textcolor=color.black)
+
+plot(showTSLLine ? tsl : na, color=colr, linewidth=3, title="TSL")
+
+barcolor(showBarColor ? colr : na)
+bgcolor(showBgColor ? colr : na)
+
+// === Alerts ===
+alertcondition(Buy, title="Buy Signal", message="Buy")
+alertcondition(Sell, title="Sell Signal", message="Sell")
+
+//------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//__________________________ Menu ADR Start
+
+string g_gi = '███████████████ ADR Inputs ███████████████'
+
+string tt_l = 
+ '• Usually, the ADR is calculated using a period of 14.' + 
+ '\n• Multipliers are calculated based on the \'Length 1\' input.' + 
+ '\n• Input the same value in both lengths to display the ADR levels as lines.'
+
+int i_adr_len_1 = input.int(defval = 10, minval = 1, title = 'Length 1', tooltip = tt_l, group = g_gi)
+int i_adr_len_2 = input.int(defval = 5, minval = 1, title = 'Length 2', group = g_gi)
+
+string g_adr_1 = '█████████████ ADR Daily █████████████'
+
+int i_adr_1_showlast = input.int(defval = 1, minval = 0, title = 'Show Last', group = g_adr_1) + 1
+string i_adr_1_tf = input.timeframe(defval = 'D', title = 'Timeframe', group = g_adr_1)
+
+bool i_adr_1_multi_show_1 = input.bool(defval = false, title = 'M1', inline = 'm_1', group = g_adr_1)
+float i_adr_1_multi_1 = input.float(defval = 0.33, title = '    ', minval = 0, inline = 'm_1', group = g_adr_1)
+bool i_adr_1_multi_show_2 = input.bool(defval = false, title = 'M2', inline = 'm_2', group = g_adr_1)
+float i_adr_1_multi_2 = input.float(defval = 2, title = '    ', minval = 0, inline = 'm_2', group = g_adr_1)
+bool i_adr_1_multi_show_3 = input.bool(defval = false, title = 'M3', inline = 'm_3', group = g_adr_1)
+float i_adr_1_multi_3 = input.float(defval = 3, title = '    ', minval = 0, inline = 'm_3', group = g_adr_1)
+
+bool i_adr_1_show_past = input.bool(defval = true, title = 'Historical Plot', group = g_adr_1)
+
+string i_adr_1_ln_style = input.string(defval = line.style_solid, title = 'Line Style', options = [line.style_solid, line.style_dashed, line.style_dotted], group = g_adr_1)
+int i_adr_1_ln_width = input.int(defval = 1, title = 'Line Width', group = g_adr_1)
+
+color i_adr_1_r_txt_color = input.color(defval = #F7525F, title = 'Resistance', group = g_adr_1)
+color i_adr_1_multi_color = input.color(defval = #434651, title = 'Multiplier', group = g_adr_1)
+color i_adr_1_s_txt_color = input.color(defval = #22AB94, title = 'Support', group = g_adr_1)
+
+string g_adr_2 = '█████████████ ADR Weekly █████████████'
+
+int i_adr_2_showlast = input.int(defval = 0, minval = 0, title = 'Show Last', group = g_adr_2) + 1
+string i_adr_2_tf = input.timeframe(defval = 'W', title = 'Timeframe', group = g_adr_2)
+
+bool i_adr_2_multi_show_1 = input.bool(defval = false, title = 'M1', inline = '2', group = g_adr_2)
+float i_adr_2_multi_1 = input.float(defval = 0.33, title = '    ', minval = 0, inline = '2', group = g_adr_2)
+
+string i_adr_2_ln_style = input.string(defval = line.style_dashed, title = 'Line Style', options = [line.style_solid, line.style_dashed, line.style_dotted], group = g_adr_2)
+int i_adr_2_ln_width = input.int(defval = 1, title = 'Line Width', group = g_adr_2)
+
+color i_adr_2_r_txt_color = input.color(defval = #F7525F, title = 'Resistance', group = g_adr_2)
+color i_adr_2_multi_color = input.color(defval = #434651, title = 'Multiplier', group = g_adr_2)
+color i_adr_2_s_txt_color = input.color(defval = #22AB94, title = 'Support', group = g_adr_2)
+
+string g_adr_3 = '█████████████ ADR Monthly █████████████'
+
+int i_adr_3_showlast = input.int(defval = 0, minval = 0, title = 'Show Last', group = g_adr_3) + 1
+string i_adr_3_tf = input.timeframe(defval = 'M', title = 'Timeframe', group = g_adr_3)
+
+bool i_adr_3_multi_show_1 = input.bool(defval = false, title = 'M1', inline = '2', group = g_adr_3)
+float i_adr_3_multi_1 = input.float(defval = 0.33, title = '    ', minval = 0, inline = '2', group = g_adr_3)
+
+string i_adr_3_ln_style = input.string(defval = line.style_dotted, title = 'Line Style', options = [line.style_solid, line.style_dashed, line.style_dotted], group = g_adr_3)
+int i_adr_3_ln_width = input.int(defval = 1, title = 'Line Width', group = g_adr_3)
+
+color i_adr_3_r_txt_color = input.color(defval = #F7525F, title = 'Resistance', group = g_adr_3)
+color i_adr_3_multi_color = input.color(defval = #434651, title = 'Multiplier', group = g_adr_3)
+color i_adr_3_s_txt_color = input.color(defval = #22AB94, title = 'Support', group = g_adr_3)
+
+string g_adr_gs = '██████████████ ADR General Settings ██████████████'
+
+int i_adr_bx_transp = input.int(defval = 90, minval = 0, maxval = 100, title = 'Box Transp', group = g_adr_gs)
+string i_adr_txt_size = input.string(defval = size.auto, title = 'Text Size', options = [size.auto, size.tiny, size.small, size.normal, size.large, size.huge], group = g_adr_gs)
+string i_adr_bx_text_align = input.string(text.align_right, 'Text Align', options = [text.align_right, text.align_center, text.align_left], group = g_adr_gs)
+
+string g_adr_tbl = '██████████████████ ADR Table ██████████████████'
+
+bool i_adr_tbl_disp = input.bool(defval = true, title = 'Table', group = g_adr_tbl)
+string i_adr_tbl_pos = input.string(defval = position.top_right, title = 'Position', options = [position.top_left, position.top_center, position.top_right, position.middle_left, position.middle_center, position.middle_right, position.bottom_left, position.bottom_center, position.bottom_right], group = g_adr_tbl)
+string i_adr_tbl_txt_size = input.string(defval = size.auto, title = 'Size', options = [size.auto, size.tiny, size.small, size.normal, size.large, size.huge], group = g_adr_tbl)
+color i_adr_tbl_txt_color = input.color(defval = #B2B5BE, title = 'Color', group = g_adr_tbl)
+
+//_____________________________ Menu ADR End
+
+
+//_____________________________ Menu ADR Screener Formula Start
+
+string g_adr_scr = '████████████ ADR Screener Formula ████████████'
+
+string txt_scr = 
+ 'Formula for price Near ADR High:\n\n' + 
+ 'Line 1.\n' + 
+ '5 minute Close <= ( day Open + ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) + ( ( ( day Open + ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) - day Open ) / 4 ) \n\n' + 
+ 'Line 2.\n' + 
+ '5 minute Close >= ( day Open + ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) - ( ( ( day Open + ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) - day Open ) / 4 ) \n\n\n' + 
+ 'Formula for price Near ADR Low:\n\n' + 
+ 'Line 1.\n' + 
+ '5 minute Close <= ( day Open - ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) + ( ( day Open - ( day Open - ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) ) / 4 ) \n\n' + 
+ 'Line 2.\n' + '5 minute Close >= ( day Open - ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) - ( ( day Open - ( day Open - ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) ) / 4 )'
+
+string i_adr_scr_formula = input.text_area(defval = txt_scr, title = '', group = g_adr_scr)
+
+//_____________________________ Menu ADR Screener Formula End
+
+//_____________________________ Menu GitHub Start
+
+//_____________________________ Menu GitHub End
+
+//__________________________ ADR Start
+
+// Data Function
+data_adr(string tf) =>
+    [l_1_sma_h, l_1_sma_l, l_2_sma_h, l_2_sma_l, o, t, tc] = request.security(symbol = syminfo.tickerid, timeframe = tf, expression = [ta.sma(high[1], i_adr_len_1), ta.sma(low[1], i_adr_len_1), ta.sma(high[1], i_adr_len_2), ta.sma(low[1], i_adr_len_2), open, time, time_close], lookahead = barmerge.lookahead_on)
+    [l_1_sma_h, l_1_sma_l, l_2_sma_h, l_2_sma_l, o, t, tc]
+
+// ADR Function
+adr(float prev_high_sma, float prev_low_sma, float curr_open, float multiplier) =>
+    adr_value = (prev_high_sma - prev_low_sma) / 2
+    [curr_open + adr_value * multiplier, curr_open - adr_value * multiplier]
+
+// ADR 1 Data
+[adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_len_2_sma_h, adr_1_len_2_sma_l, adr_1_curr_o, adr_1_time, adr_1_tc] = data_adr(i_adr_1_tf)
+// ADR 1 Calculation
+[adr_1_len_1_r, adr_1_len_1_s] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, 1)
+[adr_1_len_2_r, adr_1_len_2_s] = adr(adr_1_len_2_sma_h, adr_1_len_2_sma_l, adr_1_curr_o, 1)
+// ADR 1 Multiplier
+[adr_1_len_1_r_m_1, adr_1_len_1_s_m_1] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, i_adr_1_multi_1)
+[adr_1_len_1_r_m_2, adr_1_len_1_s_m_2] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, i_adr_1_multi_2)
+[adr_1_len_1_r_m_3, adr_1_len_1_s_m_3] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, i_adr_1_multi_3)
+// Near ADR 1 S & R
+[adr_1_len_1_r_near_up, adr_1_len_1_s_near_up] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, 1.25)
+[adr_1_len_1_r_near_dn, adr_1_len_1_s_near_dn] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, 0.75)
+
+// ADR 2 Data
+[adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_len_2_sma_h, adr_2_len_2_sma_l, adr_2_curr_o, adr_2_time, adr_2_tc] = data_adr(i_adr_2_tf)
+// ADR 2 Calculation
+[adr_2_len_1_r, adr_2_len_1_s] = adr(adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_curr_o, 1)
+[adr_2_len_2_r, adr_2_len_2_s] = adr(adr_2_len_2_sma_h, adr_2_len_2_sma_l, adr_2_curr_o, 1)
+// ADR 2 Multiplier
+[adr_2_len_1_r_m_1, adr_2_len_1_s_m_1] = adr(adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_curr_o, i_adr_2_multi_1)
+// Near ADR 2 S & R
+[adr_2_len_1_r_near_up, adr_2_len_1_s_near_up] = adr(adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_curr_o, 1.25)
+[adr_2_len_1_r_near_dn, adr_2_len_1_s_near_dn] = adr(adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_curr_o, 0.75)
+
+// ADR 3 Data
+[adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_len_2_sma_h, adr_3_len_2_sma_l, adr_3_curr_o, adr_3_time, adr_3_tc] = data_adr(i_adr_3_tf)
+// ADR 3 Calculation
+[adr_3_len_1_r, adr_3_len_1_s] = adr(adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_curr_o, 1)
+[adr_3_len_2_r, adr_3_len_2_s] = adr(adr_3_len_2_sma_h, adr_3_len_2_sma_l, adr_3_curr_o, 1)
+// ADR 23 Multiplier
+[adr_3_len_1_r_m_1, adr_3_len_1_s_m_1] = adr(adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_curr_o, i_adr_3_multi_1)
+// Near ADR 3 S & R
+[adr_3_len_1_r_near_up, adr_3_len_1_s_near_up] = adr(adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_curr_o, 1.25)
+[adr_3_len_1_r_near_dn, adr_3_len_1_s_near_dn] = adr(adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_curr_o, 0.75)
+
+//_____________________________ Get Data
+
+//_____________________________ Pivots Calculations
+
+// ADR Width
+// Function to calculate CPR width
+adr_width(float tc, float bc, float pivot) =>
+    math.abs(tc - bc) / pivot * 100
+
+// Using the function for different pivots
+float adr_1_width = adr_width(adr_1_len_1_r, adr_1_len_1_s, adr_1_curr_o)
+
+//_____________________________ Draw Functions Start
+
+draw_line(bool display, left_time, right_time, float price, color _color, string _style, int _width) =>
+    if display
+        line.new(x1 = left_time, y1 = price, x2 = right_time, y2 = price, xloc = xloc.bar_time, color = _color, style = _style, width = _width, force_overlay = true)
+
+draw_box(bool display, left_time, right_time, float top_price, float bottom_price, color _color, int _border_width, string _border_style, string tf_text) =>
+    if display
+        box.new(left = left_time, top = top_price, right = right_time, bottom = bottom_price, border_color = _color, border_width = _border_width, border_style = _border_style, xloc = xloc.bar_time, bgcolor = color.new(_color, i_adr_bx_transp), text = str.tostring(top_price, '#.##') + ' (' + tf_text + ')', text_size = i_adr_txt_size, text_color = _color, text_halign = i_adr_bx_text_align, text_valign = text.align_center)
+
+//_____________________________ Draw Functions End
+
+//_____________________________ Draw Pivots 1 Start
+
+// Variables
+var adr_1_r_bx_arr = array.new_box()
+var adr_1_s_bx_arr = array.new_box()
+var adr_1_r_m_1_ln_arr = array.new_line()
+var adr_1_r_m_2_ln_arr = array.new_line()
+var adr_1_r_m_3_ln_arr = array.new_line()
+var adr_1_s_m_1_ln_arr = array.new_line()
+var adr_1_s_m_2_ln_arr = array.new_line()
+var adr_1_s_m_3_ln_arr = array.new_line()
+
+// Draw
+if timeframe.change(i_adr_1_tf)
+    array.push(adr_1_r_bx_arr, draw_box(true, adr_1_time, adr_1_tc, adr_1_len_1_r, adr_1_len_2_r, i_adr_1_r_txt_color, i_adr_1_ln_width, i_adr_1_ln_style, i_adr_1_tf))
+    array.push(adr_1_s_bx_arr, draw_box(true, adr_1_time, adr_1_tc, adr_1_len_1_s, adr_1_len_2_s, i_adr_1_s_txt_color, i_adr_1_ln_width, i_adr_1_ln_style, i_adr_1_tf))
+
+    array.push(adr_1_r_m_1_ln_arr, draw_line(i_adr_1_multi_show_1, adr_1_time, adr_1_tc, adr_1_len_1_r_m_1, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+    array.push(adr_1_s_m_1_ln_arr, draw_line(i_adr_1_multi_show_1, adr_1_time, adr_1_tc, adr_1_len_1_s_m_1, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+
+    array.push(adr_1_r_m_2_ln_arr, draw_line(i_adr_1_multi_show_2, adr_1_time, adr_1_tc, adr_1_len_1_r_m_2, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+    array.push(adr_1_s_m_2_ln_arr, draw_line(i_adr_1_multi_show_2, adr_1_time, adr_1_tc, adr_1_len_1_s_m_2, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+
+    array.push(adr_1_r_m_3_ln_arr, draw_line(i_adr_1_multi_show_3, adr_1_time, adr_1_tc, adr_1_len_1_r_m_3, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+    array.push(adr_1_s_m_3_ln_arr, draw_line(i_adr_1_multi_show_3, adr_1_time, adr_1_tc, adr_1_len_1_s_m_3, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+
+// Function to delete past lines & boxes
+showlast_boxes(arr, int showlast) =>
+    if array.size(arr) >= showlast
+        box = array.get(arr, 0)
+        box.delete(box)
+        array.remove(arr, 0)
+
+showlast_lines(arr, int showlast) =>
+    if array.size(arr) >= showlast
+        line = array.get(arr, 0)
+        line.delete(line)
+        array.remove(arr, 0)
+
+// Lines
+showlast_boxes(adr_1_r_bx_arr, i_adr_1_showlast)
+showlast_boxes(adr_1_s_bx_arr, i_adr_1_showlast)
+
+showlast_lines(adr_1_r_m_1_ln_arr, i_adr_1_showlast)
+showlast_lines(adr_1_r_m_2_ln_arr, i_adr_1_showlast)
+showlast_lines(adr_1_r_m_3_ln_arr, i_adr_1_showlast)
+
+showlast_lines(adr_1_s_m_1_ln_arr, i_adr_1_showlast)
+showlast_lines(adr_1_s_m_2_ln_arr, i_adr_1_showlast)
+showlast_lines(adr_1_s_m_3_ln_arr, i_adr_1_showlast)
+
+// Plot Historical
+adr_1_len_1_r_break = adr_1_len_1_r == adr_1_len_1_r[1]
+adr_1_len_1_s_tf_break = adr_1_len_1_s == adr_1_len_1_s[1]
+
+adr_1_len_2_r_break = adr_1_len_2_r == adr_1_len_2_r[1]
+adr_1_len_2_s_tf_break = adr_1_len_2_s == adr_1_len_2_s[1]
+
+adr_1_len_1_r_tf_plot = plot(series = i_adr_1_show_past and adr_1_len_1_r_break ? adr_1_len_1_r : na, title = 'ADR 1 Resistance', color = i_adr_1_r_txt_color, style = plot.style_steplinebr, offset = -1)
+adr_1_len_1_s_tf_plot = plot(series = i_adr_1_show_past and adr_1_len_1_s_tf_break ? adr_1_len_1_s : na, title = 'ADR 1 Support ', color = i_adr_1_s_txt_color, style = plot.style_steplinebr, offset = -1)
+
+adr_1_len_2_r_tf_plot = plot(series = i_adr_1_show_past and adr_1_len_2_r_break ? adr_1_len_2_r : na, title = 'ADR 2 Resistance', color = i_adr_1_r_txt_color, style = plot.style_steplinebr, offset = -1)
+adr_1_len_2_s_tf_plot = plot(series = i_adr_1_show_past and adr_1_len_2_s_tf_break ? adr_1_len_2_s : na, title = 'ADR 2 Support ', color = i_adr_1_s_txt_color, style = plot.style_steplinebr, offset = -1)
+
+fill(plot1 = adr_1_len_1_r_tf_plot, plot2 = adr_1_len_2_r_tf_plot, color = color.new(i_adr_1_r_txt_color, i_adr_bx_transp), title = 'ADR 1 Resistance Fill')
+fill(plot1 = adr_1_len_1_s_tf_plot, plot2 = adr_1_len_2_s_tf_plot, color = color.new(i_adr_1_s_txt_color, i_adr_bx_transp), title = 'ADR 1 Support Fill')
+
+//_____________________________ Draw Pivots 2 Start
+
+// Variables
+var adr_2_r_bx_arr = array.new_box()
+var adr_2_s_bx_arr = array.new_box()
+var adr_2_r_m_1_ln_arr = array.new_line()
+var adr_2_s_m_1_ln_arr = array.new_line()
+
+// Draw
+if timeframe.change(i_adr_2_tf)
+    array.push(adr_2_r_bx_arr, draw_box(true, adr_2_time, adr_2_tc, adr_2_len_1_r, adr_2_len_2_r, i_adr_2_r_txt_color, i_adr_2_ln_width, i_adr_2_ln_style, i_adr_2_tf))
+    array.push(adr_2_s_bx_arr, draw_box(true, adr_2_time, adr_2_tc, adr_2_len_1_s, adr_2_len_2_s, i_adr_2_s_txt_color, i_adr_2_ln_width, i_adr_2_ln_style, i_adr_2_tf))
+
+    array.push(adr_2_r_m_1_ln_arr, draw_line(i_adr_2_multi_show_1, adr_2_time, adr_2_tc, adr_2_len_1_r_m_1, i_adr_2_multi_color, i_adr_2_ln_style, i_adr_2_ln_width))
+    array.push(adr_2_s_m_1_ln_arr, draw_line(i_adr_2_multi_show_1, adr_2_time, adr_2_tc, adr_2_len_1_s_m_1, i_adr_2_multi_color, i_adr_2_ln_style, i_adr_2_ln_width))
+
+// Lines
+showlast_boxes(adr_2_r_bx_arr, i_adr_2_showlast)
+showlast_boxes(adr_2_s_bx_arr, i_adr_2_showlast)
+showlast_lines(adr_2_r_m_1_ln_arr, i_adr_2_showlast)
+showlast_lines(adr_2_s_m_1_ln_arr, i_adr_2_showlast)
+
+//_____________________________ Draw Pivots 3 Start
+
+// Variables
+var adr_3_r_bx_arr = array.new_box()
+var adr_3_s_bx_arr = array.new_box()
+var adr_3_r_m_1_ln_arr = array.new_line()
+var adr_3_s_m_1_ln_arr = array.new_line()
+
+// Draw
+if timeframe.change(i_adr_3_tf)
+    array.push(adr_3_r_bx_arr, draw_box(true, adr_3_time, adr_3_tc, adr_3_len_1_r, adr_3_len_2_r, i_adr_3_r_txt_color, i_adr_3_ln_width, i_adr_3_ln_style, i_adr_3_tf))
+    array.push(adr_3_s_bx_arr, draw_box(true, adr_3_time, adr_3_tc, adr_3_len_1_s, adr_3_len_2_s, i_adr_3_s_txt_color, i_adr_3_ln_width, i_adr_3_ln_style, i_adr_3_tf))
+
+    array.push(adr_3_r_m_1_ln_arr, draw_line(i_adr_3_multi_show_1, adr_3_time, adr_3_tc, adr_3_len_1_r_m_1, i_adr_3_multi_color, i_adr_3_ln_style, i_adr_3_ln_width))
+    array.push(adr_3_s_m_1_ln_arr, draw_line(i_adr_3_multi_show_1, adr_3_time, adr_3_tc, adr_3_len_1_s_m_1, i_adr_3_multi_color, i_adr_3_ln_style, i_adr_3_ln_width))
+
+// Lines
+showlast_boxes(adr_3_r_bx_arr, i_adr_3_showlast)
+showlast_boxes(adr_3_s_bx_arr, i_adr_3_showlast)
+showlast_lines(adr_3_r_m_1_ln_arr, i_adr_3_showlast)
+showlast_lines(adr_3_s_m_1_ln_arr, i_adr_3_showlast)
+
+//__________________________ ADR End
+
+// Resolution to String
+res_to_str(_res) =>
+    if _res == ''
+        ''
+    else if _res == '1'
+        '1m'
+    else if _res == '3'
+        '3m'
+    else if _res == '5'
+        '5m'
+    else if _res == '15'
+        '15m'
+    else if _res == '30'
+        '30m'
+    else if _res == '45'
+        '45m'
+    else if _res == '60'
+        '1h'
+    else if _res == '120'
+        '2h'
+    else if _res == '180'
+        '3h'
+    else if _res == '240'
+        '4h'
+    else if _res == '1D'
+        'D'
+    else if _res == '1W'
+        'W'
+    else if _res == '1M'
+        'M'
+    else if _res == '3M'
+        '3M'
+    else if _res == '6M'
+        '6M'
+    else if _res == '12M'
+        '12M'
+    else
+        _res
+
+//__________________________ Table Start
+
+// Price Near ADR Levels Start
+price_near(float near_dn, float near_up, string adr_tf, string label_type) =>
+    condition = close > near_dn and close < near_up
+    txt = condition ? 'Price near \'' + res_to_str(adr_tf) + '\' ' + label_type : ''
+    txt
+
+messages = array.new_string(0)
+
+array.push(messages, price_near(adr_1_len_1_r_near_dn, adr_1_len_1_r_near_up, i_adr_1_tf, 'Resistance'))
+array.push(messages, price_near(adr_1_len_1_s_near_up, adr_1_len_1_s_near_dn, i_adr_1_tf, 'Support'))
+array.push(messages, price_near(adr_2_len_1_r_near_dn, adr_2_len_1_r_near_up, i_adr_2_tf, 'Resistance'))
+array.push(messages, price_near(adr_2_len_1_s_near_dn, adr_2_len_1_s_near_up, i_adr_2_tf, 'Support'))
+array.push(messages, price_near(adr_3_len_1_r_near_dn, adr_3_len_1_r_near_up, i_adr_3_tf, 'Resistance'))
+array.push(messages, price_near(adr_3_len_1_s_near_dn, adr_3_len_1_s_near_up, i_adr_3_tf, 'Support'))
+
+// Concatenate the messages based on conditions
+all_messages = ''
+for i = 0 to array.size(messages) - 1 by 1
+    current_message = array.get(messages, i)
+    all_messages := current_message != '' ? all_messages + current_message + '\n' : all_messages
+    all_messages
+
+// Color
+color adr_1_len_1_rw_col = adr_1_width > 4 ? i_adr_1_s_txt_color : i_adr_tbl_txt_color
+color tbl_bgcolor = #00000000
+
+// Plot Table
+var table tbl = table.new(position = i_adr_tbl_pos, columns = 2, rows = 3, border_width = 1)
+
+string tt_rw = '• Range width is the % between support & resistance of ADR 14.\n' + '• A range width above 4% means increasing volatility & is good for intraday.\n' + '• A range width below 3% may not give an interesting % change between the swings.'
+
+if i_adr_tbl_disp and barstate.islast
+    table.cell(tbl, column = 0, row = 0, text = 'Range Width:', text_color = i_adr_tbl_txt_color, text_halign = text.align_left, bgcolor = tbl_bgcolor, text_size = i_adr_tbl_txt_size, tooltip = tt_rw)
+    table.cell(tbl, column = 1, row = 0, text = str.tostring(adr_1_width, '#.##') + ' % (' + res_to_str(i_adr_1_tf) + ')', text_color = adr_1_len_1_rw_col, text_halign = text.align_right, bgcolor = tbl_bgcolor, text_size = i_adr_tbl_txt_size)
+    table.cell(tbl, column = 0, row = 1, text = all_messages, text_color = i_adr_tbl_txt_color, text_halign = text.align_left, bgcolor = tbl_bgcolor, text_size = i_adr_tbl_txt_size)
+    table.merge_cells(table_id = tbl, start_column = 0, start_row = 1, end_column = 1, end_row = 1)
+
+//_____________________________ Table End
+
+
+//_____________________________ Code End
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//indicator(title='Supply_Demand', shorttitle="FVG, Open, S & D, Swing B & S", overlay=true, max_bars_back=500)
+/////////////////////////////////////////////////////////////////////////
+// Switch Board
+////////////////////////////////////////////////////////////////////////
+
+switchboard_group = "████ Switch Board (Turn On/Off Overlay Indicators) ████"
+//switch_ema = input.bool (false, "EMA", group=switchboard_group, inline='Switch1')
+switch_poi = input.bool (true, "Supply/Demand Zone", group=switchboard_group, inline='Switch1')
+
+///////////////////////////////////////////////////
+//////// SUpply/Demand POI
+//////////////////////////////////////////////////
+//      INDICATOR SETTINGS
+poi_group = '██████████ Supply/Demand Zone ██████████'
+swing_length = input.int(10, title = 'Swing High/Low Length', group = poi_group, minval = 1, maxval = 50)
+history_of_demand_to_keep = input.int(20, title = 'History To Keep', minval = 5, maxval = 50, group = poi_group)
+box_width = input.float(5, title = 'Supply/Demand Box Width', group = poi_group, minval = 1, maxval = 10, step = 0.5)
+
+//      INDICATOR VISUAL SETTINGS
+show_zigzag = input.bool(false, title = 'Show Zig Zag', group = 'Visual Settings', inline = '1')
+show_price_action_labels = input.bool(true, title = 'Show Price Action Labels', group = 'Visual Settings', inline = '2')
+
+supply_color = input.color(color.new(#f02c2c, 70), title = 'Supply', group = 'Visual Settings', inline = '3')
+supply_outline_color = input.color(color.new(#858181, 100), title = 'Outline', group = 'Visual Settings', inline = '3')
+
+demand_color = input.color(color.new(#00FFFF,70), title = 'Demand', group = 'Visual Settings', inline = '4')
+demand_outline_color = input.color(color.new(#797474, 100), title = 'Outline', group = 'Visual Settings', inline = '4')
+
+
+poi_label_color = input.color(color.rgb(0, 0, 0), title = 'POI Label', group = 'Visual Settings', inline = '7')
+
+swing_type_color = input.color(color.black, title = 'Price Action Label', group = 'Visual Settings', inline = '8')
+zigzag_color = input.color(color.new(#000000,0), title = 'Zig Zag', group = 'Visual Settings', inline = '9')
+
+//
+//END SETTINGS
+//
+
+atrpoi = ta.atr(50)
+//
+//FUNCTIONS
+//
+
+//      FUNCTION TO ADD NEW AND REMOVE LAST IN ARRAY
+f_array_add_pop(array, new_value_to_add) =>
+    array.unshift(array, new_value_to_add)
+    array.pop(array)
+
+//      FUNCTION SWING H & L LABELS
+f_sh_sl_labels(array, swing_type) =>
+
+    var string label_text = na
+    if swing_type == 1
+        if array.get(array, 0) >= array.get(array, 1)
+            label_text := 'HH'
+        else
+            label_text := 'LH'
+        label.new(bar_index - swing_length, array.get(array,0), text = label_text, style=label.style_label_down, textcolor = swing_type_color, color = color.new(swing_type_color, 100), size = size.tiny)
+    
+    else if swing_type == -1
+        if array.get(array, 0) >= array.get(array, 1)
+            label_text := 'HL'
+        else
+            label_text := 'LL'
+        label.new(bar_index - swing_length, array.get(array,0), text = label_text, style=label.style_label_up, textcolor = swing_type_color, color = color.new(swing_type_color, 100), size = size.tiny)
+
+//      FUNCTION MAKE SURE SUPPLY ISNT OVERLAPPING
+f_check_overlapping(new_poi, box_array, atrpoi) =>
+
+    atr_threshold = atrpoi * 2
+    okay_to_draw = true
+
+    for i = 0 to array.size(box_array) - 1
+        top = box.get_top(array.get(box_array, i))
+        bottom = box.get_bottom(array.get(box_array, i))
+        poi = (top + bottom) / 2
+
+        upper_boundary = poi + atr_threshold
+        lower_boundary = poi - atr_threshold
+
+        if new_poi >= lower_boundary and new_poi <= upper_boundary
+            okay_to_draw := false
+            break
+        else 
+            okay_to_draw := true
+    okay_to_draw
+
+
+//      FUNCTION TO DRAW SUPPLY OR DEMAND ZONE
+f_supply_demand(value_array, bn_array, box_array, label_array, box_type, atrpoi) =>
+
+    atr_buffer = atrpoi * (box_width / 10)
+    box_left = array.get(bn_array, 0)
+    box_right = bar_index
+
+    var float box_top = 0.00
+    var float box_bottom = 0.00
+    var float poi = 0.00
+
+
+    if box_type == 1
+        box_top := array.get(value_array, 0)
+        box_bottom := box_top - atr_buffer
+        poi := (box_top + box_bottom) / 2
+    else if box_type == -1
+        box_bottom := array.get(value_array, 0)
+        box_top := box_bottom + atr_buffer
+        poi := (box_top + box_bottom) / 2
+
+    okay_to_draw = f_check_overlapping(poi, box_array, atrpoi)
+    // okay_to_draw = true
+
+    //delete oldest box, and then create a new box and add it to the array
+    if box_type == 1 and okay_to_draw and switch_poi
+        box.delete( array.get(box_array, array.size(box_array) - 1) )
+        f_array_add_pop(box_array, box.new( left = box_left, top = box_top, right = box_right, bottom = box_bottom, border_color = supply_outline_color,
+             bgcolor = supply_color, extend = extend.right, text = 'SUPPLY', text_halign = text.align_center, text_valign = text.align_center, text_color = poi_label_color, text_size = size.small, xloc = xloc.bar_index))
+        
+        box.delete( array.get(label_array, array.size(label_array) - 1) )
+        f_array_add_pop(label_array, box.new( left = box_left, top = poi, right = box_right, bottom = poi, border_color = color.new(poi_label_color,90),
+             bgcolor = color.new(poi_label_color,90), extend = extend.right, text = 'POI', text_halign = text.align_left, text_valign = text.align_center, text_color = poi_label_color, text_size = size.small, xloc = xloc.bar_index))
+
+    else if box_type == -1 and okay_to_draw  and switch_poi
+        box.delete( array.get(box_array, array.size(box_array) - 1) )
+        f_array_add_pop(box_array, box.new( left = box_left, top = box_top, right = box_right, bottom = box_bottom, border_color = demand_outline_color,
+             bgcolor = demand_color, extend = extend.right,  text = 'DEMAND', text_halign = text.align_center, text_valign = text.align_center, text_color = poi_label_color, text_size = size.small, xloc = xloc.bar_index))
+        
+        box.delete( array.get(label_array, array.size(label_array) - 1) )
+        f_array_add_pop(label_array, box.new( left = box_left, top = poi, right = box_right, bottom = poi, border_color = color.new(poi_label_color,90),
+             bgcolor = color.new(poi_label_color,90), extend = extend.right,  text = 'POI', text_halign = text.align_left, text_valign = text.align_center, text_color = poi_label_color, text_size = size.small, xloc = xloc.bar_index))
+
+
+//      FUNCTION TO CHANGE SUPPLY/DEMAND TO A BOS IF BROKEN
+f_sd_to_bos(box_array, bos_array, label_array, zone_type) =>
+
+    if zone_type == 1  and switch_poi
+        for i = 0 to array.size(box_array) - 1
+            level_to_break = box.get_top(array.get(box_array,i))
+            // if ta.crossover(close, level_to_break)
+            if close >= level_to_break
+                copied_box = box.copy(array.get(box_array,i))
+                f_array_add_pop(bos_array, copied_box)
+                mid = (box.get_top(array.get(box_array,i)) + box.get_bottom(array.get(box_array,i))) / 2
+                box.set_top(array.get(bos_array,0), mid)
+                box.set_bottom(array.get(bos_array,0), mid)
+                box.set_extend( array.get(bos_array,0), extend.none)
+                box.set_right( array.get(bos_array,0), bar_index)
+                box.set_text( array.get(bos_array,0), '' )
+                box.set_text_color( array.get(bos_array,0), color.new(color.white, 0))
+                box.set_text_size( array.get(bos_array,0), size.small)
+                box.set_text_halign( array.get(bos_array,0), text.align_center)
+                box.set_text_valign( array.get(bos_array,0), text.align_center)
+                box.delete(array.get(box_array, i))
+                box.delete(array.get(label_array, i))
+
+
+    if zone_type == -1  and switch_poi
+        for i = 0 to array.size(box_array) - 1
+            level_to_break = box.get_bottom(array.get(box_array,i))
+            // if ta.crossunder(close, level_to_break)
+            if close <= level_to_break
+                copied_box = box.copy(array.get(box_array,i))
+                f_array_add_pop(bos_array, copied_box)
+                mid = (box.get_top(array.get(box_array,i)) + box.get_bottom(array.get(box_array,i))) / 2
+                box.set_top(array.get(bos_array,0), mid)
+                box.set_bottom(array.get(bos_array,0), mid)
+                box.set_extend( array.get(bos_array,0), extend.none)
+                box.set_right( array.get(bos_array,0), bar_index)
+                box.set_text( array.get(bos_array,0), '' )
+                box.set_text_color( array.get(bos_array,0),  color.new(color.white, 0))
+                box.set_text_size( array.get(bos_array,0), size.small)
+                box.set_text_halign( array.get(bos_array,0), text.align_center)
+                box.set_text_valign( array.get(bos_array,0), text.align_center)
+                box.delete(array.get(box_array, i))
+                box.delete(array.get(label_array, i))
+
+
+
+//      FUNCTION MANAGE CURRENT BOXES BY CHANGING ENDPOINT
+f_extend_box_endpoint(box_array) =>
+
+    for i = 0 to array.size(box_array) - 1
+        box.set_right(array.get(box_array, i), bar_index + 100)
+
+
+
+
+
+//      CALCULATE SWING HIGHS & SWING LOWS
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low = ta.pivotlow(low, swing_length, swing_length)
+
+//      ARRAYS FOR SWING H/L & BN 
+var swing_high_values = array.new_float(5,0.00)
+var swing_low_values = array.new_float(5,0.00)
+
+var swing_high_bns = array.new_int(5,0)
+var swing_low_bns = array.new_int(5,0)
+
+//      ARRAYS FOR SUPPLY / DEMAND
+var current_supply_box = array.new_box(history_of_demand_to_keep, na)
+var current_demand_box = array.new_box(history_of_demand_to_keep, na)
+
+//      ARRAYS FOR SUPPLY / DEMAND POI LABELS
+var current_supply_poi = array.new_box(history_of_demand_to_keep, na)
+var current_demand_poi = array.new_box(history_of_demand_to_keep, na)
+
+//      ARRAYS FOR BOS
+var supply_bos = array.new_box(5, na)
+var demand_bos = array.new_box(5, na)
+//
+//END CALCULATIONS
+//
+
+//      NEW SWING HIGH
+if not na(swing_high)
+
+    //MANAGE SWING HIGH VALUES
+    f_array_add_pop(swing_high_values, swing_high)
+    f_array_add_pop(swing_high_bns, bar_index[swing_length])
+    if show_price_action_labels
+        f_sh_sl_labels(swing_high_values, 1)
+
+    f_supply_demand(swing_high_values, swing_high_bns, current_supply_box, current_supply_poi, 1, atrpoi)
+
+//      NEW SWING LOW
+else if not na(swing_low)
+
+    //MANAGE SWING LOW VALUES
+    f_array_add_pop(swing_low_values, swing_low)
+    f_array_add_pop(swing_low_bns, bar_index[swing_length])
+    if show_price_action_labels
+        f_sh_sl_labels(swing_low_values, -1)
+    
+    f_supply_demand(swing_low_values, swing_low_bns, current_demand_box, current_demand_poi, -1, atrpoi)
+
+
+f_sd_to_bos(current_supply_box, supply_bos, current_supply_poi, 1)
+f_sd_to_bos(current_demand_box, demand_bos, current_demand_poi, -1)
+
+f_extend_box_endpoint(current_supply_box)
+f_extend_box_endpoint(current_demand_box)
+
+//ZIG ZAG
+h = ta.highest(high, swing_length * 2 + 1)
+l = ta.lowest(low, swing_length * 2 + 1)
+f_isMin(len) =>
+    l == low[len]
+f_isMax(len) =>
+    h == high[len]
+
+var dirUp = false
+var lastLow = high * 100
+var lastHigh = 0.0
+var timeLow = bar_index
+var timeHigh = bar_index
+var line li = na
+
+f_drawLine() =>
+    _li_color = show_zigzag and switch_poi ? zigzag_color : color.new(#ffffff,100)
+    line.new(timeHigh - swing_length, lastHigh, timeLow - swing_length, lastLow, xloc.bar_index, color=_li_color, width=2)
+
+if dirUp
+    if f_isMin(swing_length) and low[swing_length] < lastLow
+        lastLow := low[swing_length]
+        timeLow := bar_index
+        line.delete(li)
+        li := f_drawLine()
+        li
+
+    if f_isMax(swing_length) and high[swing_length] > lastLow
+        lastHigh := high[swing_length]
+        timeHigh := bar_index
+        dirUp := false
+        li := f_drawLine()
+        li
+
+if not dirUp
+    if f_isMax(swing_length) and high[swing_length] > lastHigh
+        lastHigh := high[swing_length]
+        timeHigh := bar_index
+        line.delete(li)
+        li := f_drawLine()
+        li
+    if f_isMin(swing_length) and low[swing_length] < lastHigh
+        lastLow := low[swing_length]
+        timeLow := bar_index
+        dirUp := true
+        li := f_drawLine()
+        if f_isMax(swing_length) and high[swing_length] > lastLow
+            lastHigh := high[swing_length]
+            timeHigh := bar_index
+            dirUp := false
+            li := f_drawLine()
+            li
