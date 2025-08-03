@@ -267,7 +267,7 @@ float i_adr_1_multi_2 = input.float(defval = 2, title = '    ', minval =
 bool i_adr_1_multi_show_3 = input.bool(defval = false, title = 'M3', inline = 'm_3', group = g_adr_1)
 float i_adr_1_multi_3 = input.float(defval = 3, title = '    ', minval = 0, inline = 'm_3', group = g_adr_1)
 
-bool i_adr_1_show_past = input.bool(defval = false, title = 'Historical Plot', group = g_adr_1)
+bool i_adr_1_show_past = input.bool(defval = true, title = 'Historical Plot', group = g_adr_1)
 
 string i_adr_1_ln_style = input.string(defval = line.style_solid, title = 'Line Style', options = [line.style_solid, line.style_dashed, line.style_dotted], group = g_adr_1)
 int i_adr_1_ln_width = input.int(defval = 1, title = 'Line Width', group = g_adr_1)
@@ -611,363 +611,300 @@ if i_adr_tbl_disp and barstate.islast
 
 
 //_____________________________ Code End
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-const bool DEBUG = false
-const int maxBoxesCount = 500
-const int showLastXFVGs = 125
-const int extendLastXFVGsCount = 3
-const int minimumFVGSize = 3
-const float overlapThresholdPercentage = 0
-const int maxDistanceToLastBar = 10000
-const int atrLen = 10
+//indicator(title='Supply_Demand', shorttitle="FVG, Open, S & D, Swing B & S", overlay=true, max_bars_back=500)
+/////////////////////////////////////////////////////////////////////////
+// Switch Board
+////////////////////////////////////////////////////////////////////////
+
+switchboard_group = "████ Switch Board (Turn On/Off Overlay Indicators) ████"
+//switch_ema = input.bool (false, "EMA", group=switchboard_group, inline='Switch1')
+switch_poi = input.bool (true, "Supply/Demand Zone", group=switchboard_group, inline='Switch1')
+
+///////////////////////////////////////////////////
+//////// SUpply/Demand POI
+//////////////////////////////////////////////////
+//      INDICATOR SETTINGS
+poi_group = '██████████ Supply/Demand Zone ██████████'
+swing_length = input.int(10, title = 'Swing High/Low Length', group = poi_group, minval = 1, maxval = 50)
+history_of_demand_to_keep = input.int(20, title = 'History To Keep', minval = 5, maxval = 50, group = poi_group)
+box_width = input.float(5, title = 'Supply/Demand Box Width', group = poi_group, minval = 1, maxval = 10, step = 0.5)
+
+//      INDICATOR VISUAL SETTINGS
+show_zigzag = input.bool(false, title = 'Show Zig Zag', group = 'Visual Settings', inline = '1')
+show_price_action_labels = input.bool(true, title = 'Show Price Action Labels', group = 'Visual Settings', inline = '2')
+
+supply_color = input.color(color.new(#f02c2c, 70), title = 'Supply', group = 'Visual Settings', inline = '3')
+supply_outline_color = input.color(color.new(#858181, 100), title = 'Outline', group = 'Visual Settings', inline = '3')
+
+demand_color = input.color(color.new(#00FFFF,70), title = 'Demand', group = 'Visual Settings', inline = '4')
+demand_outline_color = input.color(color.new(#797474, 100), title = 'Outline', group = 'Visual Settings', inline = '4')
+
+
+poi_label_color = input.color(color.rgb(0, 0, 0), title = 'POI Label', group = 'Visual Settings', inline = '7')
+
+swing_type_color = input.color(color.black, title = 'Price Action Label', group = 'Visual Settings', inline = '8')
+zigzag_color = input.color(color.new(#000000,0), title = 'Zig Zag', group = 'Visual Settings', inline = '9')
+
+//
+//END SETTINGS
+//
+
+atrpoi = ta.atr(50)
+//
+//FUNCTIONS
+//
+
+//      FUNCTION TO ADD NEW AND REMOVE LAST IN ARRAY
+f_array_add_pop(array, new_value_to_add) =>
+    array.unshift(array, new_value_to_add)
+    array.pop(array)
+
+//      FUNCTION SWING H & L LABELS
+f_sh_sl_labels(array, swing_type) =>
+
+    var string label_text = na
+    if swing_type == 1
+        if array.get(array, 0) >= array.get(array, 1)
+            label_text := 'HH'
+        else
+            label_text := 'LH'
+        label.new(bar_index - swing_length, array.get(array,0), text = label_text, style=label.style_label_down, textcolor = swing_type_color, color = color.new(swing_type_color, 100), size = size.tiny)
+    
+    else if swing_type == -1
+        if array.get(array, 0) >= array.get(array, 1)
+            label_text := 'HL'
+        else
+            label_text := 'LL'
+        label.new(bar_index - swing_length, array.get(array,0), text = label_text, style=label.style_label_up, textcolor = swing_type_color, color = color.new(swing_type_color, 100), size = size.tiny)
+
+//      FUNCTION MAKE SURE SUPPLY ISNT OVERLAPPING
+f_check_overlapping(new_poi, box_array, atrpoi) =>
+
+    atr_threshold = atrpoi * 2
+    okay_to_draw = true
+
+    for i = 0 to array.size(box_array) - 1
+        top = box.get_top(array.get(box_array, i))
+        bottom = box.get_bottom(array.get(box_array, i))
+        poi = (top + bottom) / 2
+
+        upper_boundary = poi + atr_threshold
+        lower_boundary = poi - atr_threshold
+
+        if new_poi >= lower_boundary and new_poi <= upper_boundary
+            okay_to_draw := false
+            break
+        else 
+            okay_to_draw := true
+    okay_to_draw
+
+
+//      FUNCTION TO DRAW SUPPLY OR DEMAND ZONE
+f_supply_demand(value_array, bn_array, box_array, label_array, box_type, atrpoi) =>
+
+    atr_buffer = atrpoi * (box_width / 10)
+    box_left = array.get(bn_array, 0)
+    box_right = bar_index
+
+    var float box_top = 0.00
+    var float box_bottom = 0.00
+    var float poi = 0.00
+
+
+    if box_type == 1
+        box_top := array.get(value_array, 0)
+        box_bottom := box_top - atr_buffer
+        poi := (box_top + box_bottom) / 2
+    else if box_type == -1
+        box_bottom := array.get(value_array, 0)
+        box_top := box_bottom + atr_buffer
+        poi := (box_top + box_bottom) / 2
+
+    okay_to_draw = f_check_overlapping(poi, box_array, atrpoi)
+    // okay_to_draw = true
+
+    //delete oldest box, and then create a new box and add it to the array
+    if box_type == 1 and okay_to_draw and switch_poi
+        box.delete( array.get(box_array, array.size(box_array) - 1) )
+        f_array_add_pop(box_array, box.new( left = box_left, top = box_top, right = box_right, bottom = box_bottom, border_color = supply_outline_color,
+             bgcolor = supply_color, extend = extend.right, text = 'SUPPLY', text_halign = text.align_center, text_valign = text.align_center, text_color = poi_label_color, text_size = size.small, xloc = xloc.bar_index))
+        
+        box.delete( array.get(label_array, array.size(label_array) - 1) )
+        f_array_add_pop(label_array, box.new( left = box_left, top = poi, right = box_right, bottom = poi, border_color = color.new(poi_label_color,90),
+             bgcolor = color.new(poi_label_color,90), extend = extend.right, text = 'POI', text_halign = text.align_left, text_valign = text.align_center, text_color = poi_label_color, text_size = size.small, xloc = xloc.bar_index))
+
+    else if box_type == -1 and okay_to_draw  and switch_poi
+        box.delete( array.get(box_array, array.size(box_array) - 1) )
+        f_array_add_pop(box_array, box.new( left = box_left, top = box_top, right = box_right, bottom = box_bottom, border_color = demand_outline_color,
+             bgcolor = demand_color, extend = extend.right,  text = 'DEMAND', text_halign = text.align_center, text_valign = text.align_center, text_color = poi_label_color, text_size = size.small, xloc = xloc.bar_index))
+        
+        box.delete( array.get(label_array, array.size(label_array) - 1) )
+        f_array_add_pop(label_array, box.new( left = box_left, top = poi, right = box_right, bottom = poi, border_color = color.new(poi_label_color,90),
+             bgcolor = color.new(poi_label_color,90), extend = extend.right,  text = 'POI', text_halign = text.align_left, text_valign = text.align_center, text_color = poi_label_color, text_size = size.small, xloc = xloc.bar_index))
+
+
+//      FUNCTION TO CHANGE SUPPLY/DEMAND TO A BOS IF BROKEN
+f_sd_to_bos(box_array, bos_array, label_array, zone_type) =>
+
+    if zone_type == 1  and switch_poi
+        for i = 0 to array.size(box_array) - 1
+            level_to_break = box.get_top(array.get(box_array,i))
+            // if ta.crossover(close, level_to_break)
+            if close >= level_to_break
+                copied_box = box.copy(array.get(box_array,i))
+                f_array_add_pop(bos_array, copied_box)
+                mid = (box.get_top(array.get(box_array,i)) + box.get_bottom(array.get(box_array,i))) / 2
+                box.set_top(array.get(bos_array,0), mid)
+                box.set_bottom(array.get(bos_array,0), mid)
+                box.set_extend( array.get(bos_array,0), extend.none)
+                box.set_right( array.get(bos_array,0), bar_index)
+                box.set_text( array.get(bos_array,0), '' )
+                box.set_text_color( array.get(bos_array,0), color.new(color.white, 0))
+                box.set_text_size( array.get(bos_array,0), size.small)
+                box.set_text_halign( array.get(bos_array,0), text.align_center)
+                box.set_text_valign( array.get(bos_array,0), text.align_center)
+                box.delete(array.get(box_array, i))
+                box.delete(array.get(label_array, i))
+
+
+    if zone_type == -1  and switch_poi
+        for i = 0 to array.size(box_array) - 1
+            level_to_break = box.get_bottom(array.get(box_array,i))
+            // if ta.crossunder(close, level_to_break)
+            if close <= level_to_break
+                copied_box = box.copy(array.get(box_array,i))
+                f_array_add_pop(bos_array, copied_box)
+                mid = (box.get_top(array.get(box_array,i)) + box.get_bottom(array.get(box_array,i))) / 2
+                box.set_top(array.get(bos_array,0), mid)
+                box.set_bottom(array.get(bos_array,0), mid)
+                box.set_extend( array.get(bos_array,0), extend.none)
+                box.set_right( array.get(bos_array,0), bar_index)
+                box.set_text( array.get(bos_array,0), '' )
+                box.set_text_color( array.get(bos_array,0),  color.new(color.white, 0))
+                box.set_text_size( array.get(bos_array,0), size.small)
+                box.set_text_halign( array.get(bos_array,0), text.align_center)
+                box.set_text_valign( array.get(bos_array,0), text.align_center)
+                box.delete(array.get(box_array, i))
+                box.delete(array.get(label_array, i))
 
 
 
-volCheck = ta.cum(volume) > 0
+//      FUNCTION MANAGE CURRENT BOXES BY CHANGING ENDPOINT
+f_extend_box_endpoint(box_array) =>
 
-//if not volCheck
-//runtime.error("No volume info available.")
+    for i = 0 to array.size(box_array) - 1
+        box.set_right(array.get(box_array, i), bar_index + 100)
 
-fvgEndMethod = input.string('Close', 'Zone Invalidation', options = ['Wick', 'Close'], group = 'General Configuration')
-fvgFilterMethod = input.string('Average Range', 'Zone Filtering', options = ['Average Range', 'Volume Threshold'], group = 'General Configuration')
-volumeThresholdPercent = input.int(50, 'Volume Threshold %', group = 'General Configuration', tooltip = 'Only taken into calculation when filter method is Volume Threshold.', minval = 1, maxval = 200)
-fvgBars = input.string('Same Type', 'FVG Detection', options = ['Same Type', 'All'], tooltip = 'Same Type -> All 3 bars that formed the FVG should be the same type. (Bullish / Bearish) \n\nAll -> Bar types may vary between bullish / bearish.', group = 'General Configuration')
-fvgSensEnabled = input.bool(true, '', inline = 'sens', group = 'General Configuration')
-fvgSensitivityText = input.string('Extreme', 'Detection Sensitivity', options = ['Extreme', 'High', 'Normal', 'Low'], inline = 'sens', group = 'General Configuration')
-combineFVGs = DEBUG ? input.bool(true, 'Combine Zones', group = 'General Configuration') : true
-allowGaps = input.bool(false, 'Allow Gaps Between Bars', group = 'General Configuration', tooltip = 'On tickers that can have a different opening price than the previous bar\'s closing price, the indicator will not analyze those bars for FVGs if disabled.\n\nFor Example, if the today\'s opening price is different from the yesterday\'s closing price in a stock ticker.')
-deleteUntouched = DEBUG ? input.bool(true, '', group = 'General Configuration', inline = 'deleteUntouched') : true
-deleteUntouchedAfterXBars = DEBUG ? input.int(200, 'Delete Untouched Zones After', group = 'General Configuration', minval = 5, maxval = 500, inline = 'deleteUntouched') : 200
-showInvalidated = input.bool(true, 'Show Historic Zones', group = 'General Configuration')
 
-bullColor = input.color(#08998180, 'Bull Color', group = 'Style', inline = 'BBcolors')
-bearColor = input.color(#f2364580, 'Bear Color', group = 'Style', inline = 'BBcolors')
-textColor = input.color(#ffffff80, 'Text Color', group = 'Style', inline = 'BBcolors')
-extendZonesBy = DEBUG ? input.int(15, 'Extend Zones', group = 'Style', minval = 1, maxval = 30, inline = 'ExtendZones') : 15
-extendZonesDynamic = DEBUG ? input.bool(true, 'Dynamic', group = 'Style', inline = 'ExtendZones') : true
-extendLastFVGs = DEBUG ? input.bool(true, 'Extend Last Zones', group = 'Style') : true
-changeCombinedFVGsColor = DEBUG ? input.bool(true, 'Change Combined Zones Color', group = 'Style', inline = 'CombinedColor') : false
-combinedText = DEBUG ? input.bool(true, 'Combined Text', group = 'Style', inline = 'CombinedColor') : true
-combinedColor = DEBUG ? input.color(#fff70080, DEBUG ? '' : 'Combined Zone Color', group = 'Style', inline = 'CombinedColor') : #fff70080
-startZoneFrom = input.string('Last Bar', 'Start Zones From', options = ['First Bar', 'Last Bar'], group = 'Style')
 
-volumeBarsPlace = DEBUG ? input.string('Left', 'Show Volume Bars At', options = ['Left', 'Right'], group = 'Style', inline = 'volumebars') : 'Left'
-mirrorVolumeBars = DEBUG ? input.bool(true, 'Mirror Volume Bars', group = 'Style', inline = 'volumebars') : true
-volumeBarsLeftSide = volumeBarsPlace == 'Left'
-fvgSensitivity = fvgSensitivityText == 'Extreme' ? 6 : fvgSensitivityText == 'High' ? 2 : fvgSensitivityText == 'Normal' ? 1.5 : 1
 
-atr = ta.atr(atrLen)
 
-type FVG
-	float max = na
-	float min = na
-	bool isBull = false
-	int t = na
-	float totalVolume = na
-	int startTime = na
-	int endTime = na
-	bool extendInfinite = false
-	bool combined = false
-	bool disabled = false
-	bool isRendered = false
+//      CALCULATE SWING HIGHS & SWING LOWS
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low = ta.pivotlow(low, swing_length, swing_length)
 
-	float lowVolume = na
-	float highVolume = na
-	int lastTouched = na
+//      ARRAYS FOR SWING H/L & BN 
+var swing_high_values = array.new_float(5,0.00)
+var swing_low_values = array.new_float(5,0.00)
 
-	box fvgBox = na
-	box fvgBoxText = na
-	box fvgBoxPositive = na
-	box fvgBoxNegative = na
+var swing_high_bns = array.new_int(5,0)
+var swing_low_bns = array.new_int(5,0)
 
-	line fvgSeperator = na
-	line fvgTextSeperator = na
+//      ARRAYS FOR SUPPLY / DEMAND
+var current_supply_box = array.new_box(history_of_demand_to_keep, na)
+var current_demand_box = array.new_box(history_of_demand_to_keep, na)
 
-createFVG(h, l, bull, t, tv) =>
-    FVG newFVG = FVG.new(h, l, bull, t, tv)
-    newFVG
+//      ARRAYS FOR SUPPLY / DEMAND POI LABELS
+var current_supply_poi = array.new_box(history_of_demand_to_keep, na)
+var current_demand_poi = array.new_box(history_of_demand_to_keep, na)
 
-safeDeleteFVG(FVG fvg) =>
-    fvg.isRendered := false
+//      ARRAYS FOR BOS
+var supply_bos = array.new_box(5, na)
+var demand_bos = array.new_box(5, na)
+//
+//END CALCULATIONS
+//
 
-    box.delete(fvg.fvgBox)
-    box.delete(fvg.fvgBoxText)
-    box.delete(fvg.fvgBoxPositive)
-    box.delete(fvg.fvgBoxNegative)
+//      NEW SWING HIGH
+if not na(swing_high)
 
-    line.delete(fvg.fvgSeperator)
-    line.delete(fvg.fvgTextSeperator)
+    //MANAGE SWING HIGH VALUES
+    f_array_add_pop(swing_high_values, swing_high)
+    f_array_add_pop(swing_high_bns, bar_index[swing_length])
+    if show_price_action_labels
+        f_sh_sl_labels(swing_high_values, 1)
 
-var array<FVG> fvgList = array.new<FVG>()
-var int totalFVGIndex = 0
+    f_supply_demand(swing_high_values, swing_high_bns, current_supply_box, current_supply_poi, 1, atrpoi)
 
-moveLine(_line, _x, _y, _x2) =>
-    line.set_xy1(_line, _x, _y)
-    line.set_xy2(_line, _x2, _y)
+//      NEW SWING LOW
+else if not na(swing_low)
 
-moveBox(_box, _topLeftX, _topLeftY, _bottomRightX, _bottomRightY) =>
-    box.set_lefttop(_box, _topLeftX, _topLeftY)
-    box.set_rightbottom(_box, _bottomRightX, _bottomRightY)
+    //MANAGE SWING LOW VALUES
+    f_array_add_pop(swing_low_values, swing_low)
+    f_array_add_pop(swing_low_bns, bar_index[swing_length])
+    if show_price_action_labels
+        f_sh_sl_labels(swing_low_values, -1)
+    
+    f_supply_demand(swing_low_values, swing_low_bns, current_demand_box, current_demand_poi, -1, atrpoi)
 
-colorWithTransparency(colorF, transparencyX) =>
-    color.new(colorF, color.t(colorF) * transparencyX)
 
-createFVGBox(boxColor, transparencyX = 1.0, xlocType = xloc.bar_time) =>
-    box.new(na, na, na, na, text_size = size.normal, xloc = xlocType, extend = extend.none, bgcolor = colorWithTransparency(boxColor, transparencyX), text_color = textColor, text_halign = text.align_center, border_color = #00000000)
+f_sd_to_bos(current_supply_box, supply_bos, current_supply_poi, 1)
+f_sd_to_bos(current_demand_box, demand_bos, current_demand_poi, -1)
 
-renderFVG(FVG fvg) =>
-    fvg.isRendered := true
-    fvg.fvgBox := createFVGBox(fvg.combined and changeCombinedFVGsColor ? combinedColor : fvg.isBull ? bullColor : bearColor, 1.5)
-    fvg.fvgBoxPositive := createFVGBox(bullColor)
-    fvg.fvgBoxNegative := createFVGBox(bearColor)
-    fvg.fvgBoxText := createFVGBox(color.new(color.white, 100))
-    fvg.fvgSeperator := line.new(na, na, na, na, xloc.bar_time, extend.none, textColor, line.style_dashed, 1)
-    fvg.fvgTextSeperator := line.new(na, na, na, na, xloc.bar_time, extend.none, textColor, line.style_solid, 1)
+f_extend_box_endpoint(current_supply_box)
+f_extend_box_endpoint(current_demand_box)
 
-    zoneSize = extendZonesDynamic ? na(fvg.endTime) ? extendZonesBy : fvg.endTime - fvg.startTime : extendZonesBy
-    if na(fvg.endTime) and fvg.extendInfinite
-        zoneSize := time - fvg.startTime
-        zoneSize
+//ZIG ZAG
+h = ta.highest(high, swing_length * 2 + 1)
+l = ta.lowest(low, swing_length * 2 + 1)
+f_isMin(len) =>
+    l == low[len]
+f_isMax(len) =>
+    h == high[len]
 
-    startX = volumeBarsLeftSide ? fvg.startTime : fvg.startTime + zoneSize - zoneSize / 3
-    maxEndX = volumeBarsLeftSide ? fvg.startTime + zoneSize / 3 : fvg.startTime + zoneSize
+var dirUp = false
+var lastLow = high * 100
+var lastHigh = 0.0
+var timeLow = bar_index
+var timeHigh = bar_index
+var line li = na
 
-    moveBox(fvg.fvgBox, fvg.startTime, fvg.max, fvg.startTime + zoneSize, fvg.min)
-    moveBox(fvg.fvgBoxText, volumeBarsLeftSide ? maxEndX : fvg.startTime, fvg.max, volumeBarsLeftSide ? fvg.startTime + zoneSize : startX, fvg.min)
+f_drawLine() =>
+    _li_color = show_zigzag and switch_poi ? zigzag_color : color.new(#ffffff,100)
+    line.new(timeHigh - swing_length, lastHigh, timeLow - swing_length, lastLow, xloc.bar_index, color=_li_color, width=2)
 
-    percentage = nz(int(math.min(fvg.highVolume, fvg.lowVolume) / math.max(fvg.highVolume, fvg.lowVolume) * 100.0))
-    fvgText = fvg.totalVolume == 0 ? 'FVG' : str.tostring(fvg.totalVolume, format.volume) + ' (' + str.tostring(percentage) + '%)' + (combinedText and fvg.combined ? '\n[Combined]' : '')
-    box.set_text(fvg.fvgBoxText, fvgText)
+if dirUp
+    if f_isMin(swing_length) and low[swing_length] < lastLow
+        lastLow := low[swing_length]
+        timeLow := bar_index
+        line.delete(li)
+        li := f_drawLine()
+        li
 
-    if fvg.combined and not changeCombinedFVGsColor
-        fvg.fvgBox.set_bgcolor(colorWithTransparency(fvg.isBull ? bullColor : bearColor, 1.1))
+    if f_isMax(swing_length) and high[swing_length] > lastLow
+        lastHigh := high[swing_length]
+        timeHigh := bar_index
+        dirUp := false
+        li := f_drawLine()
+        li
 
-    showHighLowBoxText = false
-
-    if fvg.totalVolume != 0
-        curEndXHigh = int(math.ceil(fvg.highVolume / fvg.totalVolume * (maxEndX - startX) + startX))
-        curEndXLow = int(math.ceil(fvg.lowVolume / fvg.totalVolume * (maxEndX - startX) + startX))
-
-        moveBox(fvg.fvgBoxPositive, mirrorVolumeBars ? startX : curEndXLow, fvg.max, mirrorVolumeBars ? curEndXHigh : maxEndX, (fvg.min + fvg.max) / 2)
-        box.set_text(fvg.fvgBoxPositive, showHighLowBoxText ? str.tostring(fvg.highVolume, format.volume) : '')
-
-        moveBox(fvg.fvgBoxNegative, mirrorVolumeBars ? startX : curEndXHigh, fvg.min, mirrorVolumeBars ? curEndXLow : maxEndX, (fvg.min + fvg.max) / 2)
-        box.set_text(fvg.fvgBoxNegative, showHighLowBoxText ? str.tostring(fvg.lowVolume, format.volume) : '')
-
-        moveLine(fvg.fvgSeperator, volumeBarsLeftSide ? startX : maxEndX, (fvg.min + fvg.max) / 2, volumeBarsLeftSide ? maxEndX : startX)
-
-        line.set_xy1(fvg.fvgTextSeperator, volumeBarsLeftSide ? maxEndX : startX, fvg.max)
-        line.set_xy2(fvg.fvgTextSeperator, volumeBarsLeftSide ? maxEndX : startX, fvg.min)
-
-areaOfFVG(FVG fvg) =>
-    XA1 = fvg.startTime
-    XA2 = na(fvg.endTime) ? fvg.startTime + extendZonesBy : fvg.endTime
-    YA1 = fvg.max
-    YA2 = fvg.min
-    edge1 = math.sqrt((XA2 - XA1) * (XA2 - XA1) + (YA2 - YA2) * (YA2 - YA2))
-    edge2 = math.sqrt((XA2 - XA2) * (XA2 - XA2) + (YA2 - YA1) * (YA2 - YA1))
-    totalArea = edge1 * edge2
-    totalArea
-
-doFVGsTouch(FVG fvg1, FVG fvg2) =>
-    XA1 = fvg1.startTime
-    XA2 = na(fvg1.endTime) ? fvg1.startTime + extendZonesBy : fvg1.endTime
-    YA1 = fvg1.max
-    YA2 = fvg1.min
-
-    XB1 = fvg2.startTime
-    XB2 = na(fvg2.endTime) ? fvg2.startTime + extendZonesBy : fvg2.endTime
-    YB1 = fvg2.max
-    YB2 = fvg2.min
-    intersectionArea = math.max(0, math.min(XA2, XB2) - math.max(XA1, XB1)) * math.max(0, math.min(YA1, YB1) - math.max(YA2, YB2))
-    unionArea = areaOfFVG(fvg1) + areaOfFVG(fvg2) - intersectionArea
-
-    float overlapPercentage = intersectionArea / unionArea * 100.0
-    if intersectionArea > 0.0
-        //log.info(str.tostring(intersectionArea) + " | " + str.tostring(unionArea))
-        log.info(str.tostring(overlapPercentage))
-
-    if overlapPercentage > overlapThresholdPercentage
-        true
-    else
-        false
-
-isFVGValid(FVG fvg) =>
-    valid = true
-    if not showInvalidated and not na(fvg.endTime)
-        valid := false
-        valid
-    else if fvg.disabled
-        valid := false
-        valid
-    else if not na(fvg.endTime) and fvg.endTime - fvg.startTime < minimumFVGSize
-        valid := false
-        valid
-    else if na(fvg.endTime) and deleteUntouched and bar_index - fvg.lastTouched > deleteUntouchedAfterXBars
-        valid := false
-        valid
-    valid
-
-combineFVGsFunc() =>
-    if fvgList.size() > 0
-        lastCombinations = 999
-        while lastCombinations > 0
-            lastCombinations := 0
-            for i = 0 to fvgList.size() - 1 by 1
-                curFVG1 = fvgList.get(i)
-                for j = 0 to fvgList.size() - 1 by 1
-                    curFVG2 = fvgList.get(j)
-                    if i == j
-                        continue
-                    if not isFVGValid(curFVG1) or not isFVGValid(curFVG2)
-                        continue
-                    if curFVG1.isBull != curFVG2.isBull
-                        continue
-                    if doFVGsTouch(curFVG1, curFVG2)
-                        curFVG1.disabled := true
-                        curFVG2.disabled := true
-                        FVG newFVG = createFVG(math.max(curFVG1.max, curFVG2.max), math.min(curFVG1.min, curFVG2.min), curFVG1.isBull, math.min(curFVG1.t, curFVG2.t), 0)
-                        newFVG.startTime := math.min(curFVG1.startTime, curFVG2.startTime)
-                        newFVG.endTime := math.max(nz(curFVG1.endTime), nz(curFVG2.endTime))
-                        newFVG.endTime := newFVG.endTime == 0 ? na : newFVG.endTime
-
-                        newFVG.totalVolume := curFVG1.totalVolume + curFVG2.totalVolume
-                        newFVG.lowVolume := curFVG1.lowVolume + curFVG2.lowVolume
-                        newFVG.highVolume := curFVG1.highVolume + curFVG2.highVolume
-                        newFVG.lastTouched := math.max(curFVG1.lastTouched, curFVG2.lastTouched)
-
-                        newFVG.combined := true
-                        fvgList.unshift(newFVG)
-                        lastCombinations := lastCombinations + 1
-                        lastCombinations
-
-//if barstate.islast and barstate.isnew and totalFVGIndex > totalFVGIndex[2]
-//    log.info("NEW FVG!")
-alertcondition(barstate.islast and barstate.isnew and totalFVGIndex > totalFVGIndex[2], 'New FVG @ {{ticker}}', '')
-
-if bar_index > last_bar_index - maxDistanceToLastBar and barstate.isconfirmed
-    // Add Found FVG
-    bearCondition = false
-    bullCondition = false
-    shortVol = ta.sma(volume, 5)
-    longVol = ta.sma(volume, 15)
-    shortTerm = volCheck ? shortVol : 1
-    longTerm = volCheck ? longVol : 0
-
-    firstBarSize = math.max(open, close) - math.min(open, close)
-    secondBarSize = math.max(open[1], close[1]) - math.min(open[1], close[1])
-    thirdBarSize = math.max(open[2], close[2]) - math.min(open[2], close[2])
-    barSizeSum = firstBarSize + secondBarSize + thirdBarSize
-
-    barSizeCheck = true
-    //if (secondBarSize * fvgSensitivity < (firstBarSize + thirdBarSize) * 1.5)
-    //barSizeCheck := false
-
-    fvgBarsCheck = false
-    if fvgBars == 'Same Type'
-        if open > close and open[1] > close[1] and open[2] > close[2] or open <= close and open[1] <= close[1] and open[2] <= close[2]
-            fvgBarsCheck := true
-            fvgBarsCheck
-    else
-        fvgBarsCheck := true
-        fvgBarsCheck
-
-    if fvgBarsCheck and barSizeCheck
-        maxCODiff = math.max(math.abs(close[2] - open[1]), math.abs(close[1] - open))
-        if fvgFilterMethod == 'Average Range'
-            bearCondition := (barSizeSum * fvgSensitivity > atr / 1.5 or not fvgSensEnabled) and (allowGaps or maxCODiff <= atr)
-            bullCondition := (barSizeSum * fvgSensitivity > atr / 1.5 or not fvgSensEnabled) and (allowGaps or maxCODiff <= atr)
-            bullCondition
-        else if fvgFilterMethod == 'Volume Threshold'
-            thresholdMultiplier = volumeThresholdPercent / 100.0
-            bearCondition := shortTerm > longTerm * thresholdMultiplier and (allowGaps or maxCODiff <= atr)
-            bullCondition := shortTerm > longTerm * thresholdMultiplier and (allowGaps or maxCODiff <= atr)
-            bullCondition
-
-    bearFVG = high < low[2] and close[1] < low[2] and bearCondition
-    bullFVG = low > high[2] and close[1] > high[2] and bullCondition
-
-    volSum3 = math.sum(volume, 3)
-    float totalVolume = volCheck ? volSum3 : 0
-    FVG newFVG = bearFVG ? createFVG(low[2], high, false, time, totalVolume) : bullFVG ? createFVG(low, high[2], true, time, totalVolume) : na
-    FVGSize = bearFVG ? math.abs(low[2] - high) : bullFVG ? math.abs(low - high[2]) : 0
-
-    FVGSizeEnough = FVGSize * fvgSensitivity > atr
-    if FVGSizeEnough or not fvgSensEnabled
-        if not na(newFVG)
-            newFVG.startTime := time
-            if startZoneFrom == 'First Bar'
-                newFVG.startTime := time[2]
-                newFVG.startTime
-            newFVG.lastTouched := time
-            if bearFVG
-                newFVG.lowVolume := volCheck ? volume + volume[1] : 0
-                newFVG.highVolume := volCheck ? volume[2] : 0
-                newFVG.highVolume
-            else
-                newFVG.lowVolume := volCheck ? volume[2] : 0
-                newFVG.highVolume := volCheck ? volume + volume[1] : 0
-                newFVG.highVolume
-
-        if not na(newFVG)
-            totalFVGIndex := totalFVGIndex + 1
-            fvgList.unshift(newFVG)
-            while fvgList.size() > showLastXFVGs
-                fvgList.pop()
-
-    // Find Closed FVGs
-    if fvgList.size() > 0
-        for i = 0 to fvgList.size() - 1 by 1
-            curFVG = fvgList.get(i)
-            if na(curFVG.endTime)
-                // Is Touched
-                if curFVG.isBull and low <= curFVG.max or not curFVG.isBull and high >= curFVG.min
-                    curFVG.lastTouched := bar_index
-                    curFVG.lastTouched
-                if curFVG.isBull and (fvgEndMethod == 'Wick' ? low < curFVG.min : close < curFVG.min)
-                    curFVG.endTime := time
-                    curFVG.endTime
-                if not curFVG.isBull and (fvgEndMethod == 'Wick' ? high > curFVG.max : close > curFVG.max)
-                    curFVG.endTime := time
-                    curFVG.endTime
-
-    // Remove Old FVGs
-    FVGstoRemove = array.new<int>(0)
-
-    if fvgList.size() > 0
-        for i = 0 to fvgList.size() - 1 by 1
-            curIndex = fvgList.size() - 1 - i
-            curFVG = fvgList.get(curIndex)
-            if not isFVGValid(curFVG)
-                FVGstoRemove.push(curIndex)
-                safeDeleteFVG(curFVG)
-
-    if FVGstoRemove.size() > 0
-        for i = 0 to FVGstoRemove.size() - 1 by 1
-            deleteIndex = FVGstoRemove.get(i)
-            fvgList.remove(deleteIndex)
-
-if barstate.islast
-    log.info('Found ' + str.tostring(fvgList.size()) + ' FVGs.')
-
-    // Combine FVGs
-    if combineFVGs
-        combineFVGsFunc()
-
-    // Render FVGs
-    extendedLastXFVGsCount = 0
-    if fvgList.size() > 0
-        for i = fvgList.size() - 1 to 0 by 1
-            curFVG = fvgList.get(i)
-            if not isFVGValid(curFVG)
-                continue
-            if extendLastFVGs and na(curFVG.endTime) and extendedLastXFVGsCount < extendLastXFVGsCount
-                extendedLastXFVGsCount := extendedLastXFVGsCount + 1
-                curFVG.extendInfinite := true
-                curFVG.extendInfinite
-            if curFVG.isRendered
-                safeDeleteFVG(curFVG)
-            renderFVG(curFVG)
-
-//plotchar(fvgList.size(), "FVG Count", na, location.top)
+if not dirUp
+    if f_isMax(swing_length) and high[swing_length] > lastHigh
+        lastHigh := high[swing_length]
+        timeHigh := bar_index
+        line.delete(li)
+        li := f_drawLine()
+        li
+    if f_isMin(swing_length) and low[swing_length] < lastHigh
+        lastLow := low[swing_length]
+        timeLow := bar_index
+        dirUp := true
+        li := f_drawLine()
+        if f_isMax(swing_length) and high[swing_length] > lastLow
+            lastHigh := high[swing_length]
+            timeHigh := bar_index
+            dirUp := false
+            li := f_drawLine()
+            li
