@@ -1,20 +1,20 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © vinothblr2015
 //@version=6
-indicator("EMA, CPR, POHLC, Open, ADR, Swing B & S, Supply and Demand", overlay=true)
+indicator("EMA, CPR, POHLC, Open, ADR, Swing B & S, FVG Volume", overlay=true)
 
 // === User Inputs ===
 // --- 3 EMA Section ---
-show3EMA = input.bool(false, title="Show 3 EMA", group="======== 3 EMA ========")
-emaSrc = input.source(close, title="EMA Source", group="======== 3 EMA ========")
-ema1Len = input.int(20, title="EMA 1", group="======== 3 EMA ========")
-ema2Len = input.int(50, title="EMA 2", group="======== 3 EMA ========")
-ema3Len = input.int(200, title="EMA 3", group="======== 3 EMA ========")
+show3EMA = input.bool(false, title="Show 3 EMA", group="██████████ 3 EMA ██████████")
+emaSrc = input.source(close, title="EMA Source", group="██████████ 3 EMA ██████████")
+ema1Len = input.int(20, title="EMA 1", group="██████████ 3 EMA ██████████")
+ema2Len = input.int(50, title="EMA 2", group="██████████ 3 EMA ██████████")
+ema3Len = input.int(200, title="EMA 3", group="██████████ 3 EMA ██████████")
 
 // --- Additional MA Section ---
-showAddMA = input.bool(false, title="Show Additional MA", group="----------MA variance ----------")
-maType = input.string("SMA", title="MA Type:", options=["SMA", "EMA", "WMA", "VWMA"], group="----------MA variance ----------")
-maPeriod = input.int(200, title="MA Period", group="----------MA variance ----------")
+showAddMA = input.bool(false, title="Show Additional MA", group="██████████ MA variance ██████████")
+maType = input.string("SMA", title="MA Type:", options=["SMA", "EMA", "WMA", "VWMA"], group="██████████ MA variance ██████████")
+maPeriod = input.int(200, title="MA Period", group="██████████ MA variance ██████████")
 
 // === MA Calculations ===
 ema1 = ta.ema(emaSrc, ema1Len)
@@ -44,12 +44,12 @@ extend_option = input.string("None", title="Extend Line", options=["None", "Left
 session_open_line_width = input.int(2, minval=1, maxval=10, title="Line Width", group="General")
 
 // === CPR Settings ===
-showDailyCPR    = input.bool(false, title="Show Daily CPR", group="======== Pivot Boss CPR ========")
-showWeeklyCPR   = input.bool(false, title="Show Weekly CPR", group="======== Pivot Boss CPR ========")
-showRS234       = input.bool(false, title="Show R / S Level 2,3,4", group="======== Pivot Boss CPR ========")
-showWeeklyRS    = input.bool(false, title="Show Weekly R / S Level 1,2,3,4", group="======== Pivot Boss CPR ========")
-showPrevOHLC    = input.bool(false, title="Show Previous Day OHLC", group="======== Pivot Boss CPR ========")
-showWeeklyOHLC  = input.bool(false, title="Show Previous Week OHLC", group="======== Pivot Boss CPR ========")
+showDailyCPR    = input.bool(false, title="Show Daily CPR", group="██████████ Pivot Boss CPR ██████████")
+showWeeklyCPR   = input.bool(false, title="Show Weekly CPR", group="██████████ Pivot Boss CPR ██████████")
+showRS234       = input.bool(false, title="Show R / S Level 2,3,4", group="██████████ Pivot Boss CPR ██████████")
+showWeeklyRS    = input.bool(false, title="Show Weekly R / S Level 1,2,3,4", group="██████████ Pivot Boss CPR ██████████")
+showPrevOHLC    = input.bool(false, title="Show Previous Day OHLC", group="██████████ Pivot Boss CPR ██████████")
+showWeeklyOHLC  = input.bool(false, title="Show Previous Week OHLC", group="██████████ Pivot Boss CPR ██████████")
 
 // === Drawing Functions ===
 ////Interlinked for CPR and dayopen
@@ -170,7 +170,7 @@ if showWeeklyOHLC
 
 show_day_open = input.bool(defval=true, title="Show Current Day", group="Session Open")
 session_open_color = input.color(defval=color.red, title="Line Color", group="Session Open")
-session_open_line_style = input.string(defval="Dashed", title="Line Style", options=["Solid", "Dotted", "Dashed"], group="Session Open")
+session_open_line_style = input.string(defval="Dashed", title="Line Style", options=["Solid", "Dotted", "Dashed"], group="██████████ Session Open ██████████")
 
 
 
