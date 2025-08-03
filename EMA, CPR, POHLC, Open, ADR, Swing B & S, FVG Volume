@@ -1,0 +1,973 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © vinothblr2015
+//@version=6
+indicator("EMA, CPR, POHLC, Open, ADR, Swing B & S, FVG Volume", overlay=true)
+
+// === User Inputs ===
+// --- 3 EMA Section ---
+show3EMA = input.bool(false, title="Show 3 EMA", group="======== 3 EMA ========")
+emaSrc = input.source(close, title="EMA Source", group="======== 3 EMA ========")
+ema1Len = input.int(20, title="EMA 1", group="======== 3 EMA ========")
+ema2Len = input.int(50, title="EMA 2", group="======== 3 EMA ========")
+ema3Len = input.int(200, title="EMA 3", group="======== 3 EMA ========")
+
+// --- Additional MA Section ---
+showAddMA = input.bool(false, title="Show Additional MA", group="----------MA variance ----------")
+maType = input.string("SMA", title="MA Type:", options=["SMA", "EMA", "WMA", "VWMA"], group="----------MA variance ----------")
+maPeriod = input.int(200, title="MA Period", group="----------MA variance ----------")
+
+// === MA Calculations ===
+ema1 = ta.ema(emaSrc, ema1Len)
+ema2 = ta.ema(emaSrc, ema2Len)
+ema3 = ta.ema(emaSrc, ema3Len)
+
+ma = switch maType
+    "SMA" => ta.sma(emaSrc, maPeriod)
+    "EMA" => ta.ema(emaSrc, maPeriod)
+    "WMA" => ta.wma(emaSrc, maPeriod)
+    "VWMA" => ta.vwma(emaSrc, maPeriod)
+
+// === Plotting ===
+plot(show3EMA ? ema1 : na, color=color.green, title="EMA 1", linewidth=3, style=plot.style_line)
+plot(show3EMA ? ema2 : na, color=color.red, title="EMA 2", linewidth=3, style=plot.style_line)
+plot(show3EMA ? ema3 : na, color=color.black, title="EMA 3", linewidth=3, style=plot.style_line)
+
+plot(showAddMA ? ma : na, color=color.black, title="Additional MA", linewidth=2, style=plot.style_circles)
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// === General Settings ===
+//Interlinked for CPR and dayopen
+show_labels = input.bool(true, title="Show Labels", group="General")
+show_prices = input.bool(true, title="Show Prices", group="General")
+label_position = input.string("Right", title="Label Position", options=["Left", "Right"], group="General")
+extend_option = input.string("None", title="Extend Line", options=["None", "Left", "Right", "Both"], group="General")
+session_open_line_width = input.int(2, minval=1, maxval=10, title="Line Width", group="General")
+
+// === CPR Settings ===
+showDailyCPR    = input.bool(false, title="Show Daily CPR", group="======== Pivot Boss CPR ========")
+showWeeklyCPR   = input.bool(false, title="Show Weekly CPR", group="======== Pivot Boss CPR ========")
+showRS234       = input.bool(false, title="Show R / S Level 2,3,4", group="======== Pivot Boss CPR ========")
+showWeeklyRS    = input.bool(false, title="Show Weekly R / S Level 1,2,3,4", group="======== Pivot Boss CPR ========")
+showPrevOHLC    = input.bool(false, title="Show Previous Day OHLC", group="======== Pivot Boss CPR ========")
+showWeeklyOHLC  = input.bool(false, title="Show Previous Week OHLC", group="======== Pivot Boss CPR ========")
+
+// === Drawing Functions ===
+////Interlinked for CPR and dayopen
+drawLine(price, _text, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices) =>
+    fLineStyle = switch lineStyle
+        "Dotted" => line.style_dotted
+        "Dashed" => line.style_dashed
+        => line.style_solid
+
+    fLineExtend = switch lineExtend
+        "Left" => extend.left
+        "Right" => extend.right
+        "Both" => extend.both
+        => extend.none
+
+    endOfDay = time_tradingday + 105000000
+    aLine = line.new(x1=time_tradingday, y1=price, x2=endOfDay, y2=price, xloc=xloc.bar_time, color=lineColor, style=fLineStyle, extend=fLineExtend, width=lineWidth)
+    line.delete(aLine[1])
+
+    fText = _text
+    if showLabels and showPrices
+        fText := str.format("{0} - {1}", _text, math.round_to_mintick(price))
+    else if showPrices
+        fText := str.tostring(math.round_to_mintick(price))
+
+    labelXPos = label_position == "Left" ? time_tradingday : endOfDay
+    if showLabels or showPrices
+        aLabel = label.new(labelXPos, price, xloc=xloc.bar_time, text=fText, textcolor=lineColor, style=label.style_none, size=size.small)
+        label.delete(aLabel[1])
+
+// === Daily Data ===
+dClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+dOpen  = request.security(syminfo.tickerid, "D", open[1], lookahead=barmerge.lookahead_on)
+dHigh  = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+dLow   = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+
+// === Weekly Data ===
+wClose = request.security(syminfo.tickerid, "W", close[1], lookahead=barmerge.lookahead_on)
+wOpen  = request.security(syminfo.tickerid, "W", open[1], lookahead=barmerge.lookahead_on)
+wHigh  = request.security(syminfo.tickerid, "W", high[1], lookahead=barmerge.lookahead_on)
+wLow   = request.security(syminfo.tickerid, "W", low[1], lookahead=barmerge.lookahead_on)
+
+// === CPR Calculations ===
+dPivot = (dHigh + dLow + dClose) / 3
+dBC    = (dHigh + dLow) / 2
+dTC    = 2 * dPivot - dBC
+dR1    = 2 * dPivot - dLow
+dS1    = 2 * dPivot - dHigh
+dR2    = dPivot + (dHigh - dLow)
+dS2    = dPivot - (dHigh - dLow)
+dR3    = dHigh + 2 * (dPivot - dLow)
+dS3    = dLow - 2 * (dHigh - dPivot)
+dR4    = dR3 + (dR2 - dR1)
+dS4    = dS3 - (dS1 - dS2)
+
+wPivot = (wHigh + wLow + wClose) / 3
+wBC    = (wHigh + wLow) / 2
+wTC    = 2 * wPivot - wBC
+wR1    = 2 * wPivot - wLow
+wS1    = 2 * wPivot - wHigh
+wR2    = wPivot + (wHigh - wLow)
+wS2    = wPivot - (wHigh - wLow)
+wR3    = wHigh + 2 * (wPivot - wLow)
+wS3    = wLow - 2 * (wHigh - wPivot)
+wR4    = wR3 + (wR2 - wR1)
+wS4    = wS3 - (wS1 - wS2)
+
+// === Draw Levels ===
+if showDailyCPR
+    drawLine(dPivot, "D-Pivot", color.blue, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dBC, "D-BC", color.fuchsia, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dTC, "D-TC", color.fuchsia, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dR1, "D-R1", color.green, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dS1, "D-S1", color.red, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+
+if showRS234
+    drawLine(dR2, "D-R2", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dR3, "D-R3", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dR4, "D-R4", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS2, "D-S2", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS3, "D-S3", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS4, "D-S4", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+
+if showWeeklyCPR
+    drawLine(wPivot, "W-Pivot", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(wBC, "W-BC", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(wTC, "W-TC", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+
+if showWeeklyRS
+    drawLine(wR1, "W-R1", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR2, "W-R2", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR3, "W-R3", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR4, "W-R4", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS1, "W-S1", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS2, "W-S2", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS3, "W-S3", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS4, "W-S4", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+
+if showPrevOHLC
+    drawLine(dOpen,  "Prev Open",  color.yellow, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dHigh,  "Prev High",  color.green, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dLow,   "Prev Low",   color.red, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dClose, "Prev Close", color.rgb(0, 0, 0), "Dashed", extend_option, 2, show_labels, show_prices)
+
+if showWeeklyOHLC
+    drawLine(wOpen,  "W-Open",  color.yellow, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wHigh,  "W-High",  color.green, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wLow,   "W-Low",   color.red, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wClose, "W-Close", color.rgb(0, 0, 0), "Dotted", extend_option, 3, show_labels, show_prices)
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// Intraday Open
+//High Low Code Added below by Vinoth S
+
+
+
+show_day_open = input.bool(defval=true, title="Show Current Day", group="Session Open")
+session_open_color = input.color(defval=color.red, title="Line Color", group="Session Open")
+session_open_line_style = input.string(defval="Dashed", title="Line Style", options=["Solid", "Dotted", "Dashed"], group="Session Open")
+
+
+
+// Functions
+getAllTimeHigh() =>
+    h  = 0.0
+    h := bar_index == 0 ? high : high > h[1] ? high : h[1]
+
+getAllTimeLow() =>
+    l = 0.0
+    l := bar_index == 0 ? low  : low < l[1] ? low  : l[1]
+
+get_resolution() =>
+    resolution = "M"
+    if timeframe.isintraday
+        resolution := timeframe.multiplier <= 15 ? "D" : "W"
+    else if timeframe.isweekly or timeframe.ismonthly
+        resolution := "12M"
+    resolution
+
+//drawLine(price, _text, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices) =>  // Added lineWidth parameter
+
+
+
+drawOpen(show, resolution, labelText, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices) =>  // Added lineWidth parameter
+    _open = request.security(syminfo.tickerid, resolution, open)
+    if show
+        drawLine(_open, labelText, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices)
+
+
+
+// Session Open
+drawOpen(show_day_open, "D", "D-Open", session_open_color, session_open_line_style, extend_option, session_open_line_width, show_labels, show_prices)  // Pass lineWidth here
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//Accurate Swing Buy and Sell code
+
+
+// === Inputs ===
+no = input.int(3, title="Swing")
+showBuySell = input.bool(false, title="Show Buy/Sell Labels")
+showTSLLine = input.bool(true, title="Show TSL Line")
+showBarColor = input.bool(false, title="Enable Barcolor")
+showBgColor = input.bool(false, title="Enable Bgcolor")
+
+// === Calculations ===
+res = ta.highest(high, no)
+sup = ta.lowest(low, no)
+avd = close > res[1] ? 1 : close < sup[1] ? -1 : 0
+avn = ta.valuewhen(avd != 0, avd, 0)
+tsl = avn == 1 ? sup : res
+
+Buy = ta.crossover(close, tsl)
+Sell = ta.crossunder(close, tsl)
+
+colr = close >= tsl ? color.green : close <= tsl ? color.red : na
+
+// === Plotting ===
+plotshape(showBuySell and Buy, "BUY", shape.labelup, location.belowbar, color=color.green, text="BUY", textcolor=color.black)
+plotshape(showBuySell and Sell, "SELL", shape.labeldown, location.abovebar, color=color.red, text="SELL", textcolor=color.black)
+
+plot(showTSLLine ? tsl : na, color=colr, linewidth=3, title="TSL")
+
+barcolor(showBarColor ? colr : na)
+bgcolor(showBgColor ? colr : na)
+
+// === Alerts ===
+alertcondition(Buy, title="Buy Signal", message="Buy")
+alertcondition(Sell, title="Sell Signal", message="Sell")
+
+//------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//__________________________ Menu ADR Start
+
+string g_gi = '███████████████ ADR Inputs ███████████████'
+
+string tt_l = 
+ '• Usually, the ADR is calculated using a period of 14.' + 
+ '\n• Multipliers are calculated based on the \'Length 1\' input.' + 
+ '\n• Input the same value in both lengths to display the ADR levels as lines.'
+
+int i_adr_len_1 = input.int(defval = 10, minval = 1, title = 'Length 1', tooltip = tt_l, group = g_gi)
+int i_adr_len_2 = input.int(defval = 5, minval = 1, title = 'Length 2', group = g_gi)
+
+string g_adr_1 = '█████████████ ADR Daily █████████████'
+
+int i_adr_1_showlast = input.int(defval = 1, minval = 0, title = 'Show Last', group = g_adr_1) + 1
+string i_adr_1_tf = input.timeframe(defval = 'D', title = 'Timeframe', group = g_adr_1)
+
+bool i_adr_1_multi_show_1 = input.bool(defval = false, title = 'M1', inline = 'm_1', group = g_adr_1)
+float i_adr_1_multi_1 = input.float(defval = 0.33, title = '    ', minval = 0, inline = 'm_1', group = g_adr_1)
+bool i_adr_1_multi_show_2 = input.bool(defval = false, title = 'M2', inline = 'm_2', group = g_adr_1)
+float i_adr_1_multi_2 = input.float(defval = 2, title = '    ', minval = 0, inline = 'm_2', group = g_adr_1)
+bool i_adr_1_multi_show_3 = input.bool(defval = false, title = 'M3', inline = 'm_3', group = g_adr_1)
+float i_adr_1_multi_3 = input.float(defval = 3, title = '    ', minval = 0, inline = 'm_3', group = g_adr_1)
+
+bool i_adr_1_show_past = input.bool(defval = false, title = 'Historical Plot', group = g_adr_1)
+
+string i_adr_1_ln_style = input.string(defval = line.style_solid, title = 'Line Style', options = [line.style_solid, line.style_dashed, line.style_dotted], group = g_adr_1)
+int i_adr_1_ln_width = input.int(defval = 1, title = 'Line Width', group = g_adr_1)
+
+color i_adr_1_r_txt_color = input.color(defval = #F7525F, title = 'Resistance', group = g_adr_1)
+color i_adr_1_multi_color = input.color(defval = #434651, title = 'Multiplier', group = g_adr_1)
+color i_adr_1_s_txt_color = input.color(defval = #22AB94, title = 'Support', group = g_adr_1)
+
+string g_adr_2 = '█████████████ ADR Weekly █████████████'
+
+int i_adr_2_showlast = input.int(defval = 0, minval = 0, title = 'Show Last', group = g_adr_2) + 1
+string i_adr_2_tf = input.timeframe(defval = 'W', title = 'Timeframe', group = g_adr_2)
+
+bool i_adr_2_multi_show_1 = input.bool(defval = false, title = 'M1', inline = '2', group = g_adr_2)
+float i_adr_2_multi_1 = input.float(defval = 0.33, title = '    ', minval = 0, inline = '2', group = g_adr_2)
+
+string i_adr_2_ln_style = input.string(defval = line.style_dashed, title = 'Line Style', options = [line.style_solid, line.style_dashed, line.style_dotted], group = g_adr_2)
+int i_adr_2_ln_width = input.int(defval = 1, title = 'Line Width', group = g_adr_2)
+
+color i_adr_2_r_txt_color = input.color(defval = #F7525F, title = 'Resistance', group = g_adr_2)
+color i_adr_2_multi_color = input.color(defval = #434651, title = 'Multiplier', group = g_adr_2)
+color i_adr_2_s_txt_color = input.color(defval = #22AB94, title = 'Support', group = g_adr_2)
+
+string g_adr_3 = '█████████████ ADR Monthly █████████████'
+
+int i_adr_3_showlast = input.int(defval = 0, minval = 0, title = 'Show Last', group = g_adr_3) + 1
+string i_adr_3_tf = input.timeframe(defval = 'M', title = 'Timeframe', group = g_adr_3)
+
+bool i_adr_3_multi_show_1 = input.bool(defval = false, title = 'M1', inline = '2', group = g_adr_3)
+float i_adr_3_multi_1 = input.float(defval = 0.33, title = '    ', minval = 0, inline = '2', group = g_adr_3)
+
+string i_adr_3_ln_style = input.string(defval = line.style_dotted, title = 'Line Style', options = [line.style_solid, line.style_dashed, line.style_dotted], group = g_adr_3)
+int i_adr_3_ln_width = input.int(defval = 1, title = 'Line Width', group = g_adr_3)
+
+color i_adr_3_r_txt_color = input.color(defval = #F7525F, title = 'Resistance', group = g_adr_3)
+color i_adr_3_multi_color = input.color(defval = #434651, title = 'Multiplier', group = g_adr_3)
+color i_adr_3_s_txt_color = input.color(defval = #22AB94, title = 'Support', group = g_adr_3)
+
+string g_adr_gs = '██████████████ ADR General Settings ██████████████'
+
+int i_adr_bx_transp = input.int(defval = 90, minval = 0, maxval = 100, title = 'Box Transp', group = g_adr_gs)
+string i_adr_txt_size = input.string(defval = size.auto, title = 'Text Size', options = [size.auto, size.tiny, size.small, size.normal, size.large, size.huge], group = g_adr_gs)
+string i_adr_bx_text_align = input.string(text.align_right, 'Text Align', options = [text.align_right, text.align_center, text.align_left], group = g_adr_gs)
+
+string g_adr_tbl = '██████████████████ ADR Table ██████████████████'
+
+bool i_adr_tbl_disp = input.bool(defval = true, title = 'Table', group = g_adr_tbl)
+string i_adr_tbl_pos = input.string(defval = position.top_right, title = 'Position', options = [position.top_left, position.top_center, position.top_right, position.middle_left, position.middle_center, position.middle_right, position.bottom_left, position.bottom_center, position.bottom_right], group = g_adr_tbl)
+string i_adr_tbl_txt_size = input.string(defval = size.auto, title = 'Size', options = [size.auto, size.tiny, size.small, size.normal, size.large, size.huge], group = g_adr_tbl)
+color i_adr_tbl_txt_color = input.color(defval = #B2B5BE, title = 'Color', group = g_adr_tbl)
+
+//_____________________________ Menu ADR End
+
+
+//_____________________________ Menu ADR Screener Formula Start
+
+string g_adr_scr = '████████████ ADR Screener Formula ████████████'
+
+string txt_scr = 
+ 'Formula for price Near ADR High:\n\n' + 
+ 'Line 1.\n' + 
+ '5 minute Close <= ( day Open + ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) + ( ( ( day Open + ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) - day Open ) / 4 ) \n\n' + 
+ 'Line 2.\n' + 
+ '5 minute Close >= ( day Open + ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) - ( ( ( day Open + ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) - day Open ) / 4 ) \n\n\n' + 
+ 'Formula for price Near ADR Low:\n\n' + 
+ 'Line 1.\n' + 
+ '5 minute Close <= ( day Open - ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) + ( ( day Open - ( day Open - ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) ) / 4 ) \n\n' + 
+ 'Line 2.\n' + '5 minute Close >= ( day Open - ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) - ( ( day Open - ( day Open - ( ( day Sma ( 1 day ago High , 14 ) - day Sma ( 1 day ago Low , 14 ) ) / 2 ) ) ) / 4 )'
+
+string i_adr_scr_formula = input.text_area(defval = txt_scr, title = '', group = g_adr_scr)
+
+//_____________________________ Menu ADR Screener Formula End
+
+//_____________________________ Menu GitHub Start
+
+//_____________________________ Menu GitHub End
+
+//__________________________ ADR Start
+
+// Data Function
+data_adr(string tf) =>
+    [l_1_sma_h, l_1_sma_l, l_2_sma_h, l_2_sma_l, o, t, tc] = request.security(symbol = syminfo.tickerid, timeframe = tf, expression = [ta.sma(high[1], i_adr_len_1), ta.sma(low[1], i_adr_len_1), ta.sma(high[1], i_adr_len_2), ta.sma(low[1], i_adr_len_2), open, time, time_close], lookahead = barmerge.lookahead_on)
+    [l_1_sma_h, l_1_sma_l, l_2_sma_h, l_2_sma_l, o, t, tc]
+
+// ADR Function
+adr(float prev_high_sma, float prev_low_sma, float curr_open, float multiplier) =>
+    adr_value = (prev_high_sma - prev_low_sma) / 2
+    [curr_open + adr_value * multiplier, curr_open - adr_value * multiplier]
+
+// ADR 1 Data
+[adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_len_2_sma_h, adr_1_len_2_sma_l, adr_1_curr_o, adr_1_time, adr_1_tc] = data_adr(i_adr_1_tf)
+// ADR 1 Calculation
+[adr_1_len_1_r, adr_1_len_1_s] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, 1)
+[adr_1_len_2_r, adr_1_len_2_s] = adr(adr_1_len_2_sma_h, adr_1_len_2_sma_l, adr_1_curr_o, 1)
+// ADR 1 Multiplier
+[adr_1_len_1_r_m_1, adr_1_len_1_s_m_1] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, i_adr_1_multi_1)
+[adr_1_len_1_r_m_2, adr_1_len_1_s_m_2] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, i_adr_1_multi_2)
+[adr_1_len_1_r_m_3, adr_1_len_1_s_m_3] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, i_adr_1_multi_3)
+// Near ADR 1 S & R
+[adr_1_len_1_r_near_up, adr_1_len_1_s_near_up] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, 1.25)
+[adr_1_len_1_r_near_dn, adr_1_len_1_s_near_dn] = adr(adr_1_len_1_sma_h, adr_1_len_1_sma_l, adr_1_curr_o, 0.75)
+
+// ADR 2 Data
+[adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_len_2_sma_h, adr_2_len_2_sma_l, adr_2_curr_o, adr_2_time, adr_2_tc] = data_adr(i_adr_2_tf)
+// ADR 2 Calculation
+[adr_2_len_1_r, adr_2_len_1_s] = adr(adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_curr_o, 1)
+[adr_2_len_2_r, adr_2_len_2_s] = adr(adr_2_len_2_sma_h, adr_2_len_2_sma_l, adr_2_curr_o, 1)
+// ADR 2 Multiplier
+[adr_2_len_1_r_m_1, adr_2_len_1_s_m_1] = adr(adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_curr_o, i_adr_2_multi_1)
+// Near ADR 2 S & R
+[adr_2_len_1_r_near_up, adr_2_len_1_s_near_up] = adr(adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_curr_o, 1.25)
+[adr_2_len_1_r_near_dn, adr_2_len_1_s_near_dn] = adr(adr_2_len_1_sma_h, adr_2_len_1_sma_l, adr_2_curr_o, 0.75)
+
+// ADR 3 Data
+[adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_len_2_sma_h, adr_3_len_2_sma_l, adr_3_curr_o, adr_3_time, adr_3_tc] = data_adr(i_adr_3_tf)
+// ADR 3 Calculation
+[adr_3_len_1_r, adr_3_len_1_s] = adr(adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_curr_o, 1)
+[adr_3_len_2_r, adr_3_len_2_s] = adr(adr_3_len_2_sma_h, adr_3_len_2_sma_l, adr_3_curr_o, 1)
+// ADR 23 Multiplier
+[adr_3_len_1_r_m_1, adr_3_len_1_s_m_1] = adr(adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_curr_o, i_adr_3_multi_1)
+// Near ADR 3 S & R
+[adr_3_len_1_r_near_up, adr_3_len_1_s_near_up] = adr(adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_curr_o, 1.25)
+[adr_3_len_1_r_near_dn, adr_3_len_1_s_near_dn] = adr(adr_3_len_1_sma_h, adr_3_len_1_sma_l, adr_3_curr_o, 0.75)
+
+//_____________________________ Get Data
+
+//_____________________________ Pivots Calculations
+
+// ADR Width
+// Function to calculate CPR width
+adr_width(float tc, float bc, float pivot) =>
+    math.abs(tc - bc) / pivot * 100
+
+// Using the function for different pivots
+float adr_1_width = adr_width(adr_1_len_1_r, adr_1_len_1_s, adr_1_curr_o)
+
+//_____________________________ Draw Functions Start
+
+draw_line(bool display, left_time, right_time, float price, color _color, string _style, int _width) =>
+    if display
+        line.new(x1 = left_time, y1 = price, x2 = right_time, y2 = price, xloc = xloc.bar_time, color = _color, style = _style, width = _width, force_overlay = true)
+
+draw_box(bool display, left_time, right_time, float top_price, float bottom_price, color _color, int _border_width, string _border_style, string tf_text) =>
+    if display
+        box.new(left = left_time, top = top_price, right = right_time, bottom = bottom_price, border_color = _color, border_width = _border_width, border_style = _border_style, xloc = xloc.bar_time, bgcolor = color.new(_color, i_adr_bx_transp), text = str.tostring(top_price, '#.##') + ' (' + tf_text + ')', text_size = i_adr_txt_size, text_color = _color, text_halign = i_adr_bx_text_align, text_valign = text.align_center)
+
+//_____________________________ Draw Functions End
+
+//_____________________________ Draw Pivots 1 Start
+
+// Variables
+var adr_1_r_bx_arr = array.new_box()
+var adr_1_s_bx_arr = array.new_box()
+var adr_1_r_m_1_ln_arr = array.new_line()
+var adr_1_r_m_2_ln_arr = array.new_line()
+var adr_1_r_m_3_ln_arr = array.new_line()
+var adr_1_s_m_1_ln_arr = array.new_line()
+var adr_1_s_m_2_ln_arr = array.new_line()
+var adr_1_s_m_3_ln_arr = array.new_line()
+
+// Draw
+if timeframe.change(i_adr_1_tf)
+    array.push(adr_1_r_bx_arr, draw_box(true, adr_1_time, adr_1_tc, adr_1_len_1_r, adr_1_len_2_r, i_adr_1_r_txt_color, i_adr_1_ln_width, i_adr_1_ln_style, i_adr_1_tf))
+    array.push(adr_1_s_bx_arr, draw_box(true, adr_1_time, adr_1_tc, adr_1_len_1_s, adr_1_len_2_s, i_adr_1_s_txt_color, i_adr_1_ln_width, i_adr_1_ln_style, i_adr_1_tf))
+
+    array.push(adr_1_r_m_1_ln_arr, draw_line(i_adr_1_multi_show_1, adr_1_time, adr_1_tc, adr_1_len_1_r_m_1, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+    array.push(adr_1_s_m_1_ln_arr, draw_line(i_adr_1_multi_show_1, adr_1_time, adr_1_tc, adr_1_len_1_s_m_1, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+
+    array.push(adr_1_r_m_2_ln_arr, draw_line(i_adr_1_multi_show_2, adr_1_time, adr_1_tc, adr_1_len_1_r_m_2, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+    array.push(adr_1_s_m_2_ln_arr, draw_line(i_adr_1_multi_show_2, adr_1_time, adr_1_tc, adr_1_len_1_s_m_2, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+
+    array.push(adr_1_r_m_3_ln_arr, draw_line(i_adr_1_multi_show_3, adr_1_time, adr_1_tc, adr_1_len_1_r_m_3, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+    array.push(adr_1_s_m_3_ln_arr, draw_line(i_adr_1_multi_show_3, adr_1_time, adr_1_tc, adr_1_len_1_s_m_3, i_adr_1_multi_color, i_adr_1_ln_style, i_adr_1_ln_width))
+
+// Function to delete past lines & boxes
+showlast_boxes(arr, int showlast) =>
+    if array.size(arr) >= showlast
+        box = array.get(arr, 0)
+        box.delete(box)
+        array.remove(arr, 0)
+
+showlast_lines(arr, int showlast) =>
+    if array.size(arr) >= showlast
+        line = array.get(arr, 0)
+        line.delete(line)
+        array.remove(arr, 0)
+
+// Lines
+showlast_boxes(adr_1_r_bx_arr, i_adr_1_showlast)
+showlast_boxes(adr_1_s_bx_arr, i_adr_1_showlast)
+
+showlast_lines(adr_1_r_m_1_ln_arr, i_adr_1_showlast)
+showlast_lines(adr_1_r_m_2_ln_arr, i_adr_1_showlast)
+showlast_lines(adr_1_r_m_3_ln_arr, i_adr_1_showlast)
+
+showlast_lines(adr_1_s_m_1_ln_arr, i_adr_1_showlast)
+showlast_lines(adr_1_s_m_2_ln_arr, i_adr_1_showlast)
+showlast_lines(adr_1_s_m_3_ln_arr, i_adr_1_showlast)
+
+// Plot Historical
+adr_1_len_1_r_break = adr_1_len_1_r == adr_1_len_1_r[1]
+adr_1_len_1_s_tf_break = adr_1_len_1_s == adr_1_len_1_s[1]
+
+adr_1_len_2_r_break = adr_1_len_2_r == adr_1_len_2_r[1]
+adr_1_len_2_s_tf_break = adr_1_len_2_s == adr_1_len_2_s[1]
+
+adr_1_len_1_r_tf_plot = plot(series = i_adr_1_show_past and adr_1_len_1_r_break ? adr_1_len_1_r : na, title = 'ADR 1 Resistance', color = i_adr_1_r_txt_color, style = plot.style_steplinebr, offset = -1)
+adr_1_len_1_s_tf_plot = plot(series = i_adr_1_show_past and adr_1_len_1_s_tf_break ? adr_1_len_1_s : na, title = 'ADR 1 Support ', color = i_adr_1_s_txt_color, style = plot.style_steplinebr, offset = -1)
+
+adr_1_len_2_r_tf_plot = plot(series = i_adr_1_show_past and adr_1_len_2_r_break ? adr_1_len_2_r : na, title = 'ADR 2 Resistance', color = i_adr_1_r_txt_color, style = plot.style_steplinebr, offset = -1)
+adr_1_len_2_s_tf_plot = plot(series = i_adr_1_show_past and adr_1_len_2_s_tf_break ? adr_1_len_2_s : na, title = 'ADR 2 Support ', color = i_adr_1_s_txt_color, style = plot.style_steplinebr, offset = -1)
+
+fill(plot1 = adr_1_len_1_r_tf_plot, plot2 = adr_1_len_2_r_tf_plot, color = color.new(i_adr_1_r_txt_color, i_adr_bx_transp), title = 'ADR 1 Resistance Fill')
+fill(plot1 = adr_1_len_1_s_tf_plot, plot2 = adr_1_len_2_s_tf_plot, color = color.new(i_adr_1_s_txt_color, i_adr_bx_transp), title = 'ADR 1 Support Fill')
+
+//_____________________________ Draw Pivots 2 Start
+
+// Variables
+var adr_2_r_bx_arr = array.new_box()
+var adr_2_s_bx_arr = array.new_box()
+var adr_2_r_m_1_ln_arr = array.new_line()
+var adr_2_s_m_1_ln_arr = array.new_line()
+
+// Draw
+if timeframe.change(i_adr_2_tf)
+    array.push(adr_2_r_bx_arr, draw_box(true, adr_2_time, adr_2_tc, adr_2_len_1_r, adr_2_len_2_r, i_adr_2_r_txt_color, i_adr_2_ln_width, i_adr_2_ln_style, i_adr_2_tf))
+    array.push(adr_2_s_bx_arr, draw_box(true, adr_2_time, adr_2_tc, adr_2_len_1_s, adr_2_len_2_s, i_adr_2_s_txt_color, i_adr_2_ln_width, i_adr_2_ln_style, i_adr_2_tf))
+
+    array.push(adr_2_r_m_1_ln_arr, draw_line(i_adr_2_multi_show_1, adr_2_time, adr_2_tc, adr_2_len_1_r_m_1, i_adr_2_multi_color, i_adr_2_ln_style, i_adr_2_ln_width))
+    array.push(adr_2_s_m_1_ln_arr, draw_line(i_adr_2_multi_show_1, adr_2_time, adr_2_tc, adr_2_len_1_s_m_1, i_adr_2_multi_color, i_adr_2_ln_style, i_adr_2_ln_width))
+
+// Lines
+showlast_boxes(adr_2_r_bx_arr, i_adr_2_showlast)
+showlast_boxes(adr_2_s_bx_arr, i_adr_2_showlast)
+showlast_lines(adr_2_r_m_1_ln_arr, i_adr_2_showlast)
+showlast_lines(adr_2_s_m_1_ln_arr, i_adr_2_showlast)
+
+//_____________________________ Draw Pivots 3 Start
+
+// Variables
+var adr_3_r_bx_arr = array.new_box()
+var adr_3_s_bx_arr = array.new_box()
+var adr_3_r_m_1_ln_arr = array.new_line()
+var adr_3_s_m_1_ln_arr = array.new_line()
+
+// Draw
+if timeframe.change(i_adr_3_tf)
+    array.push(adr_3_r_bx_arr, draw_box(true, adr_3_time, adr_3_tc, adr_3_len_1_r, adr_3_len_2_r, i_adr_3_r_txt_color, i_adr_3_ln_width, i_adr_3_ln_style, i_adr_3_tf))
+    array.push(adr_3_s_bx_arr, draw_box(true, adr_3_time, adr_3_tc, adr_3_len_1_s, adr_3_len_2_s, i_adr_3_s_txt_color, i_adr_3_ln_width, i_adr_3_ln_style, i_adr_3_tf))
+
+    array.push(adr_3_r_m_1_ln_arr, draw_line(i_adr_3_multi_show_1, adr_3_time, adr_3_tc, adr_3_len_1_r_m_1, i_adr_3_multi_color, i_adr_3_ln_style, i_adr_3_ln_width))
+    array.push(adr_3_s_m_1_ln_arr, draw_line(i_adr_3_multi_show_1, adr_3_time, adr_3_tc, adr_3_len_1_s_m_1, i_adr_3_multi_color, i_adr_3_ln_style, i_adr_3_ln_width))
+
+// Lines
+showlast_boxes(adr_3_r_bx_arr, i_adr_3_showlast)
+showlast_boxes(adr_3_s_bx_arr, i_adr_3_showlast)
+showlast_lines(adr_3_r_m_1_ln_arr, i_adr_3_showlast)
+showlast_lines(adr_3_s_m_1_ln_arr, i_adr_3_showlast)
+
+//__________________________ ADR End
+
+// Resolution to String
+res_to_str(_res) =>
+    if _res == ''
+        ''
+    else if _res == '1'
+        '1m'
+    else if _res == '3'
+        '3m'
+    else if _res == '5'
+        '5m'
+    else if _res == '15'
+        '15m'
+    else if _res == '30'
+        '30m'
+    else if _res == '45'
+        '45m'
+    else if _res == '60'
+        '1h'
+    else if _res == '120'
+        '2h'
+    else if _res == '180'
+        '3h'
+    else if _res == '240'
+        '4h'
+    else if _res == '1D'
+        'D'
+    else if _res == '1W'
+        'W'
+    else if _res == '1M'
+        'M'
+    else if _res == '3M'
+        '3M'
+    else if _res == '6M'
+        '6M'
+    else if _res == '12M'
+        '12M'
+    else
+        _res
+
+//__________________________ Table Start
+
+// Price Near ADR Levels Start
+price_near(float near_dn, float near_up, string adr_tf, string label_type) =>
+    condition = close > near_dn and close < near_up
+    txt = condition ? 'Price near \'' + res_to_str(adr_tf) + '\' ' + label_type : ''
+    txt
+
+messages = array.new_string(0)
+
+array.push(messages, price_near(adr_1_len_1_r_near_dn, adr_1_len_1_r_near_up, i_adr_1_tf, 'Resistance'))
+array.push(messages, price_near(adr_1_len_1_s_near_up, adr_1_len_1_s_near_dn, i_adr_1_tf, 'Support'))
+array.push(messages, price_near(adr_2_len_1_r_near_dn, adr_2_len_1_r_near_up, i_adr_2_tf, 'Resistance'))
+array.push(messages, price_near(adr_2_len_1_s_near_dn, adr_2_len_1_s_near_up, i_adr_2_tf, 'Support'))
+array.push(messages, price_near(adr_3_len_1_r_near_dn, adr_3_len_1_r_near_up, i_adr_3_tf, 'Resistance'))
+array.push(messages, price_near(adr_3_len_1_s_near_dn, adr_3_len_1_s_near_up, i_adr_3_tf, 'Support'))
+
+// Concatenate the messages based on conditions
+all_messages = ''
+for i = 0 to array.size(messages) - 1 by 1
+    current_message = array.get(messages, i)
+    all_messages := current_message != '' ? all_messages + current_message + '\n' : all_messages
+    all_messages
+
+// Color
+color adr_1_len_1_rw_col = adr_1_width > 4 ? i_adr_1_s_txt_color : i_adr_tbl_txt_color
+color tbl_bgcolor = #00000000
+
+// Plot Table
+var table tbl = table.new(position = i_adr_tbl_pos, columns = 2, rows = 3, border_width = 1)
+
+string tt_rw = '• Range width is the % between support & resistance of ADR 14.\n' + '• A range width above 4% means increasing volatility & is good for intraday.\n' + '• A range width below 3% may not give an interesting % change between the swings.'
+
+if i_adr_tbl_disp and barstate.islast
+    table.cell(tbl, column = 0, row = 0, text = 'Range Width:', text_color = i_adr_tbl_txt_color, text_halign = text.align_left, bgcolor = tbl_bgcolor, text_size = i_adr_tbl_txt_size, tooltip = tt_rw)
+    table.cell(tbl, column = 1, row = 0, text = str.tostring(adr_1_width, '#.##') + ' % (' + res_to_str(i_adr_1_tf) + ')', text_color = adr_1_len_1_rw_col, text_halign = text.align_right, bgcolor = tbl_bgcolor, text_size = i_adr_tbl_txt_size)
+    table.cell(tbl, column = 0, row = 1, text = all_messages, text_color = i_adr_tbl_txt_color, text_halign = text.align_left, bgcolor = tbl_bgcolor, text_size = i_adr_tbl_txt_size)
+    table.merge_cells(table_id = tbl, start_column = 0, start_row = 1, end_column = 1, end_row = 1)
+
+//_____________________________ Table End
+
+
+//_____________________________ Code End
+
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+const bool DEBUG = false
+const int maxBoxesCount = 500
+const int showLastXFVGs = 125
+const int extendLastXFVGsCount = 3
+const int minimumFVGSize = 3
+const float overlapThresholdPercentage = 0
+const int maxDistanceToLastBar = 10000
+const int atrLen = 10
+
+
+
+volCheck = ta.cum(volume) > 0
+
+//if not volCheck
+//runtime.error("No volume info available.")
+
+fvgEndMethod = input.string('Close', 'Zone Invalidation', options = ['Wick', 'Close'], group = 'General Configuration')
+fvgFilterMethod = input.string('Average Range', 'Zone Filtering', options = ['Average Range', 'Volume Threshold'], group = 'General Configuration')
+volumeThresholdPercent = input.int(50, 'Volume Threshold %', group = 'General Configuration', tooltip = 'Only taken into calculation when filter method is Volume Threshold.', minval = 1, maxval = 200)
+fvgBars = input.string('Same Type', 'FVG Detection', options = ['Same Type', 'All'], tooltip = 'Same Type -> All 3 bars that formed the FVG should be the same type. (Bullish / Bearish) \n\nAll -> Bar types may vary between bullish / bearish.', group = 'General Configuration')
+fvgSensEnabled = input.bool(true, '', inline = 'sens', group = 'General Configuration')
+fvgSensitivityText = input.string('Extreme', 'Detection Sensitivity', options = ['Extreme', 'High', 'Normal', 'Low'], inline = 'sens', group = 'General Configuration')
+combineFVGs = DEBUG ? input.bool(true, 'Combine Zones', group = 'General Configuration') : true
+allowGaps = input.bool(false, 'Allow Gaps Between Bars', group = 'General Configuration', tooltip = 'On tickers that can have a different opening price than the previous bar\'s closing price, the indicator will not analyze those bars for FVGs if disabled.\n\nFor Example, if the today\'s opening price is different from the yesterday\'s closing price in a stock ticker.')
+deleteUntouched = DEBUG ? input.bool(true, '', group = 'General Configuration', inline = 'deleteUntouched') : true
+deleteUntouchedAfterXBars = DEBUG ? input.int(200, 'Delete Untouched Zones After', group = 'General Configuration', minval = 5, maxval = 500, inline = 'deleteUntouched') : 200
+showInvalidated = input.bool(true, 'Show Historic Zones', group = 'General Configuration')
+
+bullColor = input.color(#08998180, 'Bull Color', group = 'Style', inline = 'BBcolors')
+bearColor = input.color(#f2364580, 'Bear Color', group = 'Style', inline = 'BBcolors')
+textColor = input.color(#ffffff80, 'Text Color', group = 'Style', inline = 'BBcolors')
+extendZonesBy = DEBUG ? input.int(15, 'Extend Zones', group = 'Style', minval = 1, maxval = 30, inline = 'ExtendZones') : 15
+extendZonesDynamic = DEBUG ? input.bool(true, 'Dynamic', group = 'Style', inline = 'ExtendZones') : true
+extendLastFVGs = DEBUG ? input.bool(true, 'Extend Last Zones', group = 'Style') : true
+changeCombinedFVGsColor = DEBUG ? input.bool(true, 'Change Combined Zones Color', group = 'Style', inline = 'CombinedColor') : false
+combinedText = DEBUG ? input.bool(true, 'Combined Text', group = 'Style', inline = 'CombinedColor') : true
+combinedColor = DEBUG ? input.color(#fff70080, DEBUG ? '' : 'Combined Zone Color', group = 'Style', inline = 'CombinedColor') : #fff70080
+startZoneFrom = input.string('Last Bar', 'Start Zones From', options = ['First Bar', 'Last Bar'], group = 'Style')
+
+volumeBarsPlace = DEBUG ? input.string('Left', 'Show Volume Bars At', options = ['Left', 'Right'], group = 'Style', inline = 'volumebars') : 'Left'
+mirrorVolumeBars = DEBUG ? input.bool(true, 'Mirror Volume Bars', group = 'Style', inline = 'volumebars') : true
+volumeBarsLeftSide = volumeBarsPlace == 'Left'
+fvgSensitivity = fvgSensitivityText == 'Extreme' ? 6 : fvgSensitivityText == 'High' ? 2 : fvgSensitivityText == 'Normal' ? 1.5 : 1
+
+atr = ta.atr(atrLen)
+
+type FVG
+	float max = na
+	float min = na
+	bool isBull = false
+	int t = na
+	float totalVolume = na
+	int startTime = na
+	int endTime = na
+	bool extendInfinite = false
+	bool combined = false
+	bool disabled = false
+	bool isRendered = false
+
+	float lowVolume = na
+	float highVolume = na
+	int lastTouched = na
+
+	box fvgBox = na
+	box fvgBoxText = na
+	box fvgBoxPositive = na
+	box fvgBoxNegative = na
+
+	line fvgSeperator = na
+	line fvgTextSeperator = na
+
+createFVG(h, l, bull, t, tv) =>
+    FVG newFVG = FVG.new(h, l, bull, t, tv)
+    newFVG
+
+safeDeleteFVG(FVG fvg) =>
+    fvg.isRendered := false
+
+    box.delete(fvg.fvgBox)
+    box.delete(fvg.fvgBoxText)
+    box.delete(fvg.fvgBoxPositive)
+    box.delete(fvg.fvgBoxNegative)
+
+    line.delete(fvg.fvgSeperator)
+    line.delete(fvg.fvgTextSeperator)
+
+var array<FVG> fvgList = array.new<FVG>()
+var int totalFVGIndex = 0
+
+moveLine(_line, _x, _y, _x2) =>
+    line.set_xy1(_line, _x, _y)
+    line.set_xy2(_line, _x2, _y)
+
+moveBox(_box, _topLeftX, _topLeftY, _bottomRightX, _bottomRightY) =>
+    box.set_lefttop(_box, _topLeftX, _topLeftY)
+    box.set_rightbottom(_box, _bottomRightX, _bottomRightY)
+
+colorWithTransparency(colorF, transparencyX) =>
+    color.new(colorF, color.t(colorF) * transparencyX)
+
+createFVGBox(boxColor, transparencyX = 1.0, xlocType = xloc.bar_time) =>
+    box.new(na, na, na, na, text_size = size.normal, xloc = xlocType, extend = extend.none, bgcolor = colorWithTransparency(boxColor, transparencyX), text_color = textColor, text_halign = text.align_center, border_color = #00000000)
+
+renderFVG(FVG fvg) =>
+    fvg.isRendered := true
+    fvg.fvgBox := createFVGBox(fvg.combined and changeCombinedFVGsColor ? combinedColor : fvg.isBull ? bullColor : bearColor, 1.5)
+    fvg.fvgBoxPositive := createFVGBox(bullColor)
+    fvg.fvgBoxNegative := createFVGBox(bearColor)
+    fvg.fvgBoxText := createFVGBox(color.new(color.white, 100))
+    fvg.fvgSeperator := line.new(na, na, na, na, xloc.bar_time, extend.none, textColor, line.style_dashed, 1)
+    fvg.fvgTextSeperator := line.new(na, na, na, na, xloc.bar_time, extend.none, textColor, line.style_solid, 1)
+
+    zoneSize = extendZonesDynamic ? na(fvg.endTime) ? extendZonesBy : fvg.endTime - fvg.startTime : extendZonesBy
+    if na(fvg.endTime) and fvg.extendInfinite
+        zoneSize := time - fvg.startTime
+        zoneSize
+
+    startX = volumeBarsLeftSide ? fvg.startTime : fvg.startTime + zoneSize - zoneSize / 3
+    maxEndX = volumeBarsLeftSide ? fvg.startTime + zoneSize / 3 : fvg.startTime + zoneSize
+
+    moveBox(fvg.fvgBox, fvg.startTime, fvg.max, fvg.startTime + zoneSize, fvg.min)
+    moveBox(fvg.fvgBoxText, volumeBarsLeftSide ? maxEndX : fvg.startTime, fvg.max, volumeBarsLeftSide ? fvg.startTime + zoneSize : startX, fvg.min)
+
+    percentage = nz(int(math.min(fvg.highVolume, fvg.lowVolume) / math.max(fvg.highVolume, fvg.lowVolume) * 100.0))
+    fvgText = fvg.totalVolume == 0 ? 'FVG' : str.tostring(fvg.totalVolume, format.volume) + ' (' + str.tostring(percentage) + '%)' + (combinedText and fvg.combined ? '\n[Combined]' : '')
+    box.set_text(fvg.fvgBoxText, fvgText)
+
+    if fvg.combined and not changeCombinedFVGsColor
+        fvg.fvgBox.set_bgcolor(colorWithTransparency(fvg.isBull ? bullColor : bearColor, 1.1))
+
+    showHighLowBoxText = false
+
+    if fvg.totalVolume != 0
+        curEndXHigh = int(math.ceil(fvg.highVolume / fvg.totalVolume * (maxEndX - startX) + startX))
+        curEndXLow = int(math.ceil(fvg.lowVolume / fvg.totalVolume * (maxEndX - startX) + startX))
+
+        moveBox(fvg.fvgBoxPositive, mirrorVolumeBars ? startX : curEndXLow, fvg.max, mirrorVolumeBars ? curEndXHigh : maxEndX, (fvg.min + fvg.max) / 2)
+        box.set_text(fvg.fvgBoxPositive, showHighLowBoxText ? str.tostring(fvg.highVolume, format.volume) : '')
+
+        moveBox(fvg.fvgBoxNegative, mirrorVolumeBars ? startX : curEndXHigh, fvg.min, mirrorVolumeBars ? curEndXLow : maxEndX, (fvg.min + fvg.max) / 2)
+        box.set_text(fvg.fvgBoxNegative, showHighLowBoxText ? str.tostring(fvg.lowVolume, format.volume) : '')
+
+        moveLine(fvg.fvgSeperator, volumeBarsLeftSide ? startX : maxEndX, (fvg.min + fvg.max) / 2, volumeBarsLeftSide ? maxEndX : startX)
+
+        line.set_xy1(fvg.fvgTextSeperator, volumeBarsLeftSide ? maxEndX : startX, fvg.max)
+        line.set_xy2(fvg.fvgTextSeperator, volumeBarsLeftSide ? maxEndX : startX, fvg.min)
+
+areaOfFVG(FVG fvg) =>
+    XA1 = fvg.startTime
+    XA2 = na(fvg.endTime) ? fvg.startTime + extendZonesBy : fvg.endTime
+    YA1 = fvg.max
+    YA2 = fvg.min
+    edge1 = math.sqrt((XA2 - XA1) * (XA2 - XA1) + (YA2 - YA2) * (YA2 - YA2))
+    edge2 = math.sqrt((XA2 - XA2) * (XA2 - XA2) + (YA2 - YA1) * (YA2 - YA1))
+    totalArea = edge1 * edge2
+    totalArea
+
+doFVGsTouch(FVG fvg1, FVG fvg2) =>
+    XA1 = fvg1.startTime
+    XA2 = na(fvg1.endTime) ? fvg1.startTime + extendZonesBy : fvg1.endTime
+    YA1 = fvg1.max
+    YA2 = fvg1.min
+
+    XB1 = fvg2.startTime
+    XB2 = na(fvg2.endTime) ? fvg2.startTime + extendZonesBy : fvg2.endTime
+    YB1 = fvg2.max
+    YB2 = fvg2.min
+    intersectionArea = math.max(0, math.min(XA2, XB2) - math.max(XA1, XB1)) * math.max(0, math.min(YA1, YB1) - math.max(YA2, YB2))
+    unionArea = areaOfFVG(fvg1) + areaOfFVG(fvg2) - intersectionArea
+
+    float overlapPercentage = intersectionArea / unionArea * 100.0
+    if intersectionArea > 0.0
+        //log.info(str.tostring(intersectionArea) + " | " + str.tostring(unionArea))
+        log.info(str.tostring(overlapPercentage))
+
+    if overlapPercentage > overlapThresholdPercentage
+        true
+    else
+        false
+
+isFVGValid(FVG fvg) =>
+    valid = true
+    if not showInvalidated and not na(fvg.endTime)
+        valid := false
+        valid
+    else if fvg.disabled
+        valid := false
+        valid
+    else if not na(fvg.endTime) and fvg.endTime - fvg.startTime < minimumFVGSize
+        valid := false
+        valid
+    else if na(fvg.endTime) and deleteUntouched and bar_index - fvg.lastTouched > deleteUntouchedAfterXBars
+        valid := false
+        valid
+    valid
+
+combineFVGsFunc() =>
+    if fvgList.size() > 0
+        lastCombinations = 999
+        while lastCombinations > 0
+            lastCombinations := 0
+            for i = 0 to fvgList.size() - 1 by 1
+                curFVG1 = fvgList.get(i)
+                for j = 0 to fvgList.size() - 1 by 1
+                    curFVG2 = fvgList.get(j)
+                    if i == j
+                        continue
+                    if not isFVGValid(curFVG1) or not isFVGValid(curFVG2)
+                        continue
+                    if curFVG1.isBull != curFVG2.isBull
+                        continue
+                    if doFVGsTouch(curFVG1, curFVG2)
+                        curFVG1.disabled := true
+                        curFVG2.disabled := true
+                        FVG newFVG = createFVG(math.max(curFVG1.max, curFVG2.max), math.min(curFVG1.min, curFVG2.min), curFVG1.isBull, math.min(curFVG1.t, curFVG2.t), 0)
+                        newFVG.startTime := math.min(curFVG1.startTime, curFVG2.startTime)
+                        newFVG.endTime := math.max(nz(curFVG1.endTime), nz(curFVG2.endTime))
+                        newFVG.endTime := newFVG.endTime == 0 ? na : newFVG.endTime
+
+                        newFVG.totalVolume := curFVG1.totalVolume + curFVG2.totalVolume
+                        newFVG.lowVolume := curFVG1.lowVolume + curFVG2.lowVolume
+                        newFVG.highVolume := curFVG1.highVolume + curFVG2.highVolume
+                        newFVG.lastTouched := math.max(curFVG1.lastTouched, curFVG2.lastTouched)
+
+                        newFVG.combined := true
+                        fvgList.unshift(newFVG)
+                        lastCombinations := lastCombinations + 1
+                        lastCombinations
+
+//if barstate.islast and barstate.isnew and totalFVGIndex > totalFVGIndex[2]
+//    log.info("NEW FVG!")
+alertcondition(barstate.islast and barstate.isnew and totalFVGIndex > totalFVGIndex[2], 'New FVG @ {{ticker}}', '')
+
+if bar_index > last_bar_index - maxDistanceToLastBar and barstate.isconfirmed
+    // Add Found FVG
+    bearCondition = false
+    bullCondition = false
+    shortVol = ta.sma(volume, 5)
+    longVol = ta.sma(volume, 15)
+    shortTerm = volCheck ? shortVol : 1
+    longTerm = volCheck ? longVol : 0
+
+    firstBarSize = math.max(open, close) - math.min(open, close)
+    secondBarSize = math.max(open[1], close[1]) - math.min(open[1], close[1])
+    thirdBarSize = math.max(open[2], close[2]) - math.min(open[2], close[2])
+    barSizeSum = firstBarSize + secondBarSize + thirdBarSize
+
+    barSizeCheck = true
+    //if (secondBarSize * fvgSensitivity < (firstBarSize + thirdBarSize) * 1.5)
+    //barSizeCheck := false
+
+    fvgBarsCheck = false
+    if fvgBars == 'Same Type'
+        if open > close and open[1] > close[1] and open[2] > close[2] or open <= close and open[1] <= close[1] and open[2] <= close[2]
+            fvgBarsCheck := true
+            fvgBarsCheck
+    else
+        fvgBarsCheck := true
+        fvgBarsCheck
+
+    if fvgBarsCheck and barSizeCheck
+        maxCODiff = math.max(math.abs(close[2] - open[1]), math.abs(close[1] - open))
+        if fvgFilterMethod == 'Average Range'
+            bearCondition := (barSizeSum * fvgSensitivity > atr / 1.5 or not fvgSensEnabled) and (allowGaps or maxCODiff <= atr)
+            bullCondition := (barSizeSum * fvgSensitivity > atr / 1.5 or not fvgSensEnabled) and (allowGaps or maxCODiff <= atr)
+            bullCondition
+        else if fvgFilterMethod == 'Volume Threshold'
+            thresholdMultiplier = volumeThresholdPercent / 100.0
+            bearCondition := shortTerm > longTerm * thresholdMultiplier and (allowGaps or maxCODiff <= atr)
+            bullCondition := shortTerm > longTerm * thresholdMultiplier and (allowGaps or maxCODiff <= atr)
+            bullCondition
+
+    bearFVG = high < low[2] and close[1] < low[2] and bearCondition
+    bullFVG = low > high[2] and close[1] > high[2] and bullCondition
+
+    volSum3 = math.sum(volume, 3)
+    float totalVolume = volCheck ? volSum3 : 0
+    FVG newFVG = bearFVG ? createFVG(low[2], high, false, time, totalVolume) : bullFVG ? createFVG(low, high[2], true, time, totalVolume) : na
+    FVGSize = bearFVG ? math.abs(low[2] - high) : bullFVG ? math.abs(low - high[2]) : 0
+
+    FVGSizeEnough = FVGSize * fvgSensitivity > atr
+    if FVGSizeEnough or not fvgSensEnabled
+        if not na(newFVG)
+            newFVG.startTime := time
+            if startZoneFrom == 'First Bar'
+                newFVG.startTime := time[2]
+                newFVG.startTime
+            newFVG.lastTouched := time
+            if bearFVG
+                newFVG.lowVolume := volCheck ? volume + volume[1] : 0
+                newFVG.highVolume := volCheck ? volume[2] : 0
+                newFVG.highVolume
+            else
+                newFVG.lowVolume := volCheck ? volume[2] : 0
+                newFVG.highVolume := volCheck ? volume + volume[1] : 0
+                newFVG.highVolume
+
+        if not na(newFVG)
+            totalFVGIndex := totalFVGIndex + 1
+            fvgList.unshift(newFVG)
+            while fvgList.size() > showLastXFVGs
+                fvgList.pop()
+
+    // Find Closed FVGs
+    if fvgList.size() > 0
+        for i = 0 to fvgList.size() - 1 by 1
+            curFVG = fvgList.get(i)
+            if na(curFVG.endTime)
+                // Is Touched
+                if curFVG.isBull and low <= curFVG.max or not curFVG.isBull and high >= curFVG.min
+                    curFVG.lastTouched := bar_index
+                    curFVG.lastTouched
+                if curFVG.isBull and (fvgEndMethod == 'Wick' ? low < curFVG.min : close < curFVG.min)
+                    curFVG.endTime := time
+                    curFVG.endTime
+                if not curFVG.isBull and (fvgEndMethod == 'Wick' ? high > curFVG.max : close > curFVG.max)
+                    curFVG.endTime := time
+                    curFVG.endTime
+
+    // Remove Old FVGs
+    FVGstoRemove = array.new<int>(0)
+
+    if fvgList.size() > 0
+        for i = 0 to fvgList.size() - 1 by 1
+            curIndex = fvgList.size() - 1 - i
+            curFVG = fvgList.get(curIndex)
+            if not isFVGValid(curFVG)
+                FVGstoRemove.push(curIndex)
+                safeDeleteFVG(curFVG)
+
+    if FVGstoRemove.size() > 0
+        for i = 0 to FVGstoRemove.size() - 1 by 1
+            deleteIndex = FVGstoRemove.get(i)
+            fvgList.remove(deleteIndex)
+
+if barstate.islast
+    log.info('Found ' + str.tostring(fvgList.size()) + ' FVGs.')
+
+    // Combine FVGs
+    if combineFVGs
+        combineFVGsFunc()
+
+    // Render FVGs
+    extendedLastXFVGsCount = 0
+    if fvgList.size() > 0
+        for i = fvgList.size() - 1 to 0 by 1
+            curFVG = fvgList.get(i)
+            if not isFVGValid(curFVG)
+                continue
+            if extendLastFVGs and na(curFVG.endTime) and extendedLastXFVGsCount < extendLastXFVGsCount
+                extendedLastXFVGsCount := extendedLastXFVGsCount + 1
+                curFVG.extendInfinite := true
+                curFVG.extendInfinite
+            if curFVG.isRendered
+                safeDeleteFVG(curFVG)
+            renderFVG(curFVG)
+
+//plotchar(fvgList.size(), "FVG Count", na, location.top)
