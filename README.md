@@ -8,4 +8,4 @@
 8.  --- Intraday Current day open ---
 9. --- Daily, Weekly, Monthly ADR Levels ---
 10. --- Accurate Swing Buy and Sell ---
-11. ---FVG Volumetric ---
+11. ---Supply and Demand ---
