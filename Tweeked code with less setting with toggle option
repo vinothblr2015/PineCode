@@ -1,0 +1,683 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © vinothblr2015
+//@version=6
+indicator("Master Indicator", overlay=true)
+
+//────────────────────────────── Fixed 20/50/200 EMA Toggle
+show3EMA = input.bool(false, title="Show 20/50/200 EMA")
+
+//────────────────────────────── Additional MA Section
+showAddMA = input.bool(false, title="Show Additional MA")
+maType    = input.string("SMA", title="MA Type", options=["SMA", "EMA", "WMA", "VWMA"], inline="maRow")
+maPeriod  = input.int(200, title="MA Period", inline="maRow")
+
+//────────────────────────────── EMA Calculations (fixed lengths)
+ema1 = ta.ema(close, 20)
+ema2 = ta.ema(close, 50)
+ema3 = ta.ema(close, 200)
+
+//────────────────────────────── Additional MA
+ma = switch maType
+    "SMA"   => ta.sma(close, maPeriod)
+    "EMA"   => ta.ema(close, maPeriod)
+    "WMA"   => ta.wma(close, maPeriod)
+    "VWMA"  => ta.vwma(close, maPeriod)
+
+//────────────────────────────── Plotting
+plot(show3EMA ? ema1 : na, color=color.green,  title="20 EMA", linewidth=2)
+plot(show3EMA ? ema2 : na, color=color.red,    title="50 EMA", linewidth=2)
+plot(show3EMA ? ema3 : na, color=color.black,  title="200 EMA", linewidth=2)
+
+plot(showAddMA ? ma : na, color=color.blue,    title="Additional MA", linewidth=2)
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// === General Settings ===
+//Interlinked for CPR and dayopen
+//show_labels = input.bool(true, title="Show Labels",  inline="generalRow")
+//show_prices = input.bool(true, title="Show Prices",  inline="generalRow")
+//label_position = input.string("Right", title="Label Position", options=["Left", "Right"])
+//extend_option = input.string("None", title="Extend Line", options=["None", "Left", "Right", "Both"], inline="generalRow")
+//session_open_line_width = input.int(2, minval=1, maxval=10, title="Line Width", inline="generalRow")
+var bool   show_labels   = true      // Fixed: previously input
+var bool   show_prices   = true      // Fixed: previously input
+var string label_position = "Right"  // Fixed: previously input ("Left" or "Right")
+var string extend_option  = "None"   // Fixed: previously input ("None","Left","Right","Both")
+var int    session_open_line_width = 2 // Fixed: previously input
+
+// === CPR Settings ===
+showDailyCPR    = input.bool(false, title="Show Daily CPR", group="██████████ Pivot Boss CPR ██████████")
+showWeeklyCPR   = input.bool(false, title="Show Weekly CPR", group="██████████ Pivot Boss CPR ██████████")
+showRS234       = input.bool(false, title="Show R / S Level 2,3,4", group="██████████ Pivot Boss CPR ██████████")
+showWeeklyRS    = input.bool(false, title="Show Weekly R / S Level 1,2,3,4", group="██████████ Pivot Boss CPR ██████████")
+showPrevOHLC    = input.bool(false, title="Show Previous Day OHLC", group="██████████ Pivot Boss CPR ██████████")
+showWeeklyOHLC  = input.bool(false, title="Show Previous Week OHLC", group="██████████ Pivot Boss CPR ██████████")
+
+// === Drawing Functions ===
+////Interlinked for CPR and dayopen
+drawLine(price, _text, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices) =>
+    fLineStyle = switch lineStyle
+        "Dotted" => line.style_dotted
+        "Dashed" => line.style_dashed
+        => line.style_solid
+
+    fLineExtend = switch lineExtend
+        "Left" => extend.left
+        "Right" => extend.right
+        "Both" => extend.both
+        => extend.none
+
+    endOfDay = time_tradingday + 105000000
+    aLine = line.new(x1=time_tradingday, y1=price, x2=endOfDay, y2=price, xloc=xloc.bar_time, color=lineColor, style=fLineStyle, extend=fLineExtend, width=lineWidth)
+    line.delete(aLine[1])
+
+    fText = _text
+    if showLabels and showPrices
+        fText := str.format("{0} - {1}", _text, math.round_to_mintick(price))
+    else if showPrices
+        fText := str.tostring(math.round_to_mintick(price))
+
+    labelXPos = label_position == "Left" ? time_tradingday : endOfDay
+    if showLabels or showPrices
+        aLabel = label.new(labelXPos, price, xloc=xloc.bar_time, text=fText, textcolor=lineColor, style=label.style_none, size=size.small)
+        label.delete(aLabel[1])
+
+// === Daily Data ===
+dClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+dOpen  = request.security(syminfo.tickerid, "D", open[1], lookahead=barmerge.lookahead_on)
+dHigh  = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+dLow   = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+
+// === Weekly Data ===
+wClose = request.security(syminfo.tickerid, "W", close[1], lookahead=barmerge.lookahead_on)
+wOpen  = request.security(syminfo.tickerid, "W", open[1], lookahead=barmerge.lookahead_on)
+wHigh  = request.security(syminfo.tickerid, "W", high[1], lookahead=barmerge.lookahead_on)
+wLow   = request.security(syminfo.tickerid, "W", low[1], lookahead=barmerge.lookahead_on)
+
+// === CPR Calculations ===
+dPivot = (dHigh + dLow + dClose) / 3
+dBC    = (dHigh + dLow) / 2
+dTC    = 2 * dPivot - dBC
+dR1    = 2 * dPivot - dLow
+dS1    = 2 * dPivot - dHigh
+dR2    = dPivot + (dHigh - dLow)
+dS2    = dPivot - (dHigh - dLow)
+dR3    = dHigh + 2 * (dPivot - dLow)
+dS3    = dLow - 2 * (dHigh - dPivot)
+dR4    = dR3 + (dR2 - dR1)
+dS4    = dS3 - (dS1 - dS2)
+
+wPivot = (wHigh + wLow + wClose) / 3
+wBC    = (wHigh + wLow) / 2
+wTC    = 2 * wPivot - wBC
+wR1    = 2 * wPivot - wLow
+wS1    = 2 * wPivot - wHigh
+wR2    = wPivot + (wHigh - wLow)
+wS2    = wPivot - (wHigh - wLow)
+wR3    = wHigh + 2 * (wPivot - wLow)
+wS3    = wLow - 2 * (wHigh - wPivot)
+wR4    = wR3 + (wR2 - wR1)
+wS4    = wS3 - (wS1 - wS2)
+
+// === Draw Levels ===
+if showDailyCPR
+    drawLine(dPivot, "D-Pivot", color.blue, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dBC, "D-BC", color.fuchsia, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dTC, "D-TC", color.fuchsia, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dR1, "D-R1", color.green, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(dS1, "D-S1", color.red, "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+
+if showRS234
+    drawLine(dR2, "D-R2", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dR3, "D-R3", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dR4, "D-R4", color.green, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS2, "D-S2", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS3, "D-S3", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(dS4, "D-S4", color.red, "Solid", extend_option, 2, show_labels, show_prices)
+
+if showWeeklyCPR
+    drawLine(wPivot, "W-Pivot", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(wBC, "W-BC", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+    drawLine(wTC, "W-TC", color.rgb(54, 241, 226), "Solid", extend_option, session_open_line_width, show_labels, show_prices)
+
+if showWeeklyRS
+    drawLine(wR1, "W-R1", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR2, "W-R2", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR3, "W-R3", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wR4, "W-R4", color.teal, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS1, "W-S1", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS2, "W-S2", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS3, "W-S3", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+    drawLine(wS4, "W-S4", color.maroon, "Solid", extend_option, 2, show_labels, show_prices)
+
+if showPrevOHLC
+    drawLine(dOpen,  "Prev Open",  color.yellow, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dHigh,  "Prev High",  color.green, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dLow,   "Prev Low",   color.red, "Dashed", extend_option, 2, show_labels, show_prices)
+    drawLine(dClose, "Prev Close", color.rgb(0, 0, 0), "Dashed", extend_option, 2, show_labels, show_prices)
+
+if showWeeklyOHLC
+    drawLine(wOpen,  "W-Open",  color.yellow, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wHigh,  "W-High",  color.green, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wLow,   "W-Low",   color.red, "Dotted", extend_option, 3, show_labels, show_prices)
+    drawLine(wClose, "W-Close", color.rgb(0, 0, 0), "Dotted", extend_option, 3, show_labels, show_prices)
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// Intraday Open
+//High Low Code Added below by Vinoth S
+
+
+
+// === Session Open Settings ===
+show_day_open = input.bool(defval=true, title="Show Current Day", group="██████████ Session Open ██████████")
+
+// Fixed settings (no inputs)
+var color  session_open_color      = color.red       // Locked color
+var string session_open_line_style = "Dashed"        // Locked style
+var string session_open_label      = "D-Open"        // Locked label text
+
+// === Functions ===
+getAllTimeHigh() =>
+    h  = 0.0
+    h := bar_index == 0 ? high : high > h[1] ? high : h[1]
+
+getAllTimeLow() =>
+    l = 0.0
+    l := bar_index == 0 ? low  : low < l[1] ? low  : l[1]
+
+get_resolution() =>
+    resolution = "M"
+    if timeframe.isintraday
+        resolution := timeframe.multiplier <= 15 ? "D" : "W"
+    else if timeframe.isweekly or timeframe.ismonthly
+        resolution := "12M"
+    resolution
+
+drawOpen(show, resolution, labelText, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices) =>
+    _open = request.security(syminfo.tickerid, resolution, open)
+    if show
+        drawLine(_open, labelText, lineColor, lineStyle, lineExtend, lineWidth, showLabels, showPrices)
+
+// === Session Open ===
+drawOpen(show_day_open, "D", session_open_label, session_open_color, session_open_line_style, extend_option, session_open_line_width, show_labels, show_prices)
+
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//Accurate Swing Buy and Sell code
+
+
+// === Inputs ===
+showTSLLine = input.bool(true, title="Show TSL Line")
+
+// === Fixed Settings (hardcoded, no user inputs) ===
+var int  no          = 3          // Swing period
+var bool showBuySell = false      // Hide Buy/Sell labels
+var bool showBarColor = false     // Disable bar color
+var bool showBgColor  = false     // Disable background color
+
+// === Calculations ===
+res = ta.highest(high, no)
+sup = ta.lowest(low, no)
+avd = close > res[1] ? 1 : close < sup[1] ? -1 : 0
+avn = ta.valuewhen(avd != 0, avd, 0)
+tsl = avn == 1 ? sup : res
+
+Buy  = ta.crossover(close, tsl)
+Sell = ta.crossunder(close, tsl)
+
+colr = close >= tsl ? color.green : close <= tsl ? color.red : na
+
+// === Plotting ===
+plot(showTSLLine ? tsl : na, color=colr, linewidth=3, title="TSL")
+
+// Hidden features (locked to false, no inputs)
+plotshape(showBuySell and Buy,  "BUY",  shape.labelup,   location.belowbar, color=color.green, text="BUY",  textcolor=color.black)
+plotshape(showBuySell and Sell, "SELL", shape.labeldown, location.abovebar, color=color.red,   text="SELL", textcolor=color.black)
+barcolor(showBarColor ? colr : na)
+bgcolor(showBgColor ? colr : na)
+
+// === Alerts ===
+alertcondition(Buy,  title="Buy Signal",  message="Buy")
+alertcondition(Sell, title="Sell Signal", message="Sell")
+
+
+//------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//────────────────────────────── ADR Master Toggle
+
+adr_enable = input.bool(true, "Enable ADR (Master Toggle)")
+
+//────────────────────────────── ADR Inputs
+string g_gi = "ADR Inputs"
+
+string tt_l = 
+ '• Usually, the ADR is calculated using a period of 14.' + 
+ '\n• Input the same value in both lengths to display the ADR levels as lines.'
+
+i_adr_len_1 = input.int(defval=10, minval=1, title="Length 1", tooltip=tt_l, group=g_gi, inline="adrRow")
+i_adr_len_2 = input.int(defval=5,  minval=1, title="Length 2", group=g_gi, inline="adrRow")
+
+//────────────────────────────── ADR Calculation (Daily fixed)
+adr_tf = "D"
+
+get_adr_data(tf) =>
+    sma_h1 = request.security(syminfo.tickerid, tf, ta.sma(high[1], i_adr_len_1), lookahead=barmerge.lookahead_on)
+    sma_l1 = request.security(syminfo.tickerid, tf, ta.sma(low[1], i_adr_len_1),  lookahead=barmerge.lookahead_on)
+    sma_h2 = request.security(syminfo.tickerid, tf, ta.sma(high[1], i_adr_len_2), lookahead=barmerge.lookahead_on)
+    sma_l2 = request.security(syminfo.tickerid, tf, ta.sma(low[1], i_adr_len_2),  lookahead=barmerge.lookahead_on)
+    o      = request.security(syminfo.tickerid, tf, open,  lookahead=barmerge.lookahead_on)
+    t      = request.security(syminfo.tickerid, tf, time,  lookahead=barmerge.lookahead_on)
+    tc     = request.security(syminfo.tickerid, tf, time_close, lookahead=barmerge.lookahead_on)
+    [sma_h1, sma_l1, sma_h2, sma_l2, o, t, tc]
+
+adr(prev_high_sma, prev_low_sma, curr_open, multiplier) =>
+    adr_value = (prev_high_sma - prev_low_sma) / 2
+    [curr_open + adr_value * multiplier, curr_open - adr_value * multiplier]
+
+//────────────────────────────── Draw Helpers
+draw_box(display, left_time, right_time, top_price, bottom_price, _color) =>
+    if display
+        b = box.new(left_time, top_price, right_time, bottom_price, xloc=xloc.bar_time)
+        box.set_bgcolor(b, color.new(_color, 85)) // fixed transparency
+        box.set_border_color(b, _color)
+        box.set_border_width(b, 1)
+        b
+
+//────────────────────────────── Main ADR Logic
+if adr_enable
+    [sma_h1, sma_l1, sma_h2, sma_l2, adr_o, adr_time, adr_tc] = get_adr_data(adr_tf)
+
+    [adr_r1, adr_s1] = adr(sma_h1, sma_l1, adr_o, 1)
+    [adr_r2, adr_s2] = adr(sma_h2, sma_l2, adr_o, 1)
+
+    if timeframe.change(adr_tf)
+        // Resistance box (red)
+        draw_box(true, adr_time, adr_tc, adr_r1, adr_r2, color.red)
+        // Support box (green)
+        draw_box(true, adr_time, adr_tc, adr_s1, adr_s2, color.green)
+
+
+
+//_____________________________ Code End
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//Supply Demand Code
+
+//────────────────────────────── Master Toggle
+switch_poi = input.bool(true, "Enable Supply/Demand Zones")
+
+//────────────────────────────── Fixed Parameters (hidden from settings)
+swing_length = 10
+history_of_demand_to_keep = 20
+box_width = 5.0
+
+show_zigzag = false
+show_price_action_labels = false
+
+// Fixed Colors
+supply_color = color.new(#f02c2c, 70)
+supply_outline_color = color.new(#858181, 100)
+demand_color = color.new(#00FFFF, 70)
+demand_outline_color = color.new(#797474, 100)
+poi_label_color = color.rgb(0, 0, 0)
+swing_type_color = color.black
+zigzag_color = color.new(#000000, 0)
+
+//────────────────────────────── Core Logic
+atrpoi = ta.atr(50)
+
+// Helper functions
+f_array_add_pop(array, new_value_to_add) =>
+    array.unshift(array, new_value_to_add)
+    array.pop(array)
+
+f_sh_sl_labels(array, swing_type) =>
+    if switch_poi and show_price_action_labels
+        var string label_text = na
+        if swing_type == 1
+            label_text := array.get(array, 0) >= array.get(array, 1) ? 'HH' : 'LH'
+            label.new(bar_index - swing_length, array.get(array,0), text = label_text, style=label.style_label_down, textcolor=swing_type_color, color=color.new(swing_type_color, 100), size=size.tiny)
+        else if swing_type == -1
+            label_text := array.get(array, 0) >= array.get(array, 1) ? 'HL' : 'LL'
+            label.new(bar_index - swing_length, array.get(array,0), text = label_text, style=label.style_label_up, textcolor=swing_type_color, color=color.new(swing_type_color, 100), size=size.tiny)
+
+f_check_overlapping(new_poi, box_array, atrpoi) =>
+    atr_threshold = atrpoi * 2
+    okay_to_draw = true
+    for i = 0 to array.size(box_array) - 1
+        top = box.get_top(array.get(box_array, i))
+        bottom = box.get_bottom(array.get(box_array, i))
+        poi = (top + bottom) / 2
+        if new_poi >= poi - atr_threshold and new_poi <= poi + atr_threshold
+            okay_to_draw := false
+            break
+    okay_to_draw
+
+f_supply_demand(value_array, bn_array, box_array, label_array, box_type, atrpoi) =>
+    atr_buffer = atrpoi * (box_width / 10)
+    box_left = array.get(bn_array, 0)
+    box_right = bar_index
+    var float box_top = 0.00
+    var float box_bottom = 0.00
+    var float poi = 0.00
+
+    if box_type == 1
+        box_top := array.get(value_array, 0)
+        box_bottom := box_top - atr_buffer
+        poi := (box_top + box_bottom) / 2
+    else if box_type == -1
+        box_bottom := array.get(value_array, 0)
+        box_top := box_bottom + atr_buffer
+        poi := (box_top + box_bottom) / 2
+
+    okay_to_draw = f_check_overlapping(poi, box_array, atrpoi)
+
+    if okay_to_draw and switch_poi
+        if box_type == 1
+            box.delete(array.get(box_array, array.size(box_array) - 1))
+            f_array_add_pop(box_array, box.new(box_left, box_top, box_right, box_bottom, xloc=xloc.bar_index, border_color=supply_outline_color, bgcolor=supply_color, extend=extend.right, text="SUPPLY", text_halign=text.align_center, text_valign=text.align_center, text_color=poi_label_color, text_size=size.small))
+            box.delete(array.get(label_array, array.size(label_array) - 1))
+            f_array_add_pop(label_array, box.new(box_left, poi, box_right, poi, xloc=xloc.bar_index, border_color=color.new(poi_label_color,90), bgcolor=color.new(poi_label_color,90), extend=extend.right, text="POI", text_halign=text.align_left, text_valign=text.align_center, text_color=poi_label_color, text_size=size.small))
+        else if box_type == -1
+            box.delete(array.get(box_array, array.size(box_array) - 1))
+            f_array_add_pop(box_array, box.new(box_left, box_top, box_right, box_bottom, xloc=xloc.bar_index, border_color=demand_outline_color, bgcolor=demand_color, extend=extend.right, text="DEMAND", text_halign=text.align_center, text_valign=text.align_center, text_color=poi_label_color, text_size=size.small))
+            box.delete(array.get(label_array, array.size(label_array) - 1))
+            f_array_add_pop(label_array, box.new(box_left, poi, box_right, poi, xloc=xloc.bar_index, border_color=color.new(poi_label_color,90), bgcolor=color.new(poi_label_color,90), extend=extend.right, text="POI", text_halign=text.align_left, text_valign=text.align_center, text_color=poi_label_color, text_size=size.small))
+
+f_sd_to_bos(box_array, bos_array, label_array, zone_type) =>
+    if switch_poi
+        if zone_type == 1
+            for i = 0 to array.size(box_array) - 1
+                level_to_break = box.get_top(array.get(box_array,i))
+                if close >= level_to_break
+                    copied_box = box.copy(array.get(box_array,i))
+                    f_array_add_pop(bos_array, copied_box)
+                    mid = (box.get_top(array.get(box_array,i)) + box.get_bottom(array.get(box_array,i))) / 2
+                    box.set_top(array.get(bos_array,0), mid)
+                    box.set_bottom(array.get(bos_array,0), mid)
+                    box.set_extend(array.get(bos_array,0), extend.none)
+                    box.set_right(array.get(bos_array,0), bar_index)
+                    box.set_text(array.get(bos_array,0), "")
+                    box.delete(array.get(box_array, i))
+                    box.delete(array.get(label_array, i))
+        if zone_type == -1
+            for i = 0 to array.size(box_array) - 1
+                level_to_break = box.get_bottom(array.get(box_array,i))
+                if close <= level_to_break
+                    copied_box = box.copy(array.get(box_array,i))
+                    f_array_add_pop(bos_array, copied_box)
+                    mid = (box.get_top(array.get(box_array,i)) + box.get_bottom(array.get(box_array,i))) / 2
+                    box.set_top(array.get(bos_array,0), mid)
+                    box.set_bottom(array.get(bos_array,0), mid)
+                    box.set_extend(array.get(bos_array,0), extend.none)
+                    box.set_right(array.get(bos_array,0), bar_index)
+                    box.set_text(array.get(bos_array,0), "")
+                    box.delete(array.get(box_array, i))
+                    box.delete(array.get(label_array, i))
+
+f_extend_box_endpoint(box_array) =>
+    for i = 0 to array.size(box_array) - 1
+        box.set_right(array.get(box_array, i), bar_index + 100)
+
+//────────────────────────────── Swing High/Low Detection
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low = ta.pivotlow(low, swing_length, swing_length)
+
+var swing_high_values = array.new_float(5,0.00)
+var swing_low_values = array.new_float(5,0.00)
+var swing_high_bns = array.new_int(5,0)
+var swing_low_bns = array.new_int(5,0)
+
+var current_supply_box = array.new_box(history_of_demand_to_keep, na)
+var current_demand_box = array.new_box(history_of_demand_to_keep, na)
+var current_supply_poi = array.new_box(history_of_demand_to_keep, na)
+var current_demand_poi = array.new_box(history_of_demand_to_keep, na)
+
+var supply_bos = array.new_box(5, na)
+var demand_bos = array.new_box(5, na)
+
+//────────────────────────────── Main Logic
+if not na(swing_high)
+    f_array_add_pop(swing_high_values, swing_high)
+    f_array_add_pop(swing_high_bns, bar_index[swing_length])
+    f_sh_sl_labels(swing_high_values, 1)
+    f_supply_demand(swing_high_values, swing_high_bns, current_supply_box, current_supply_poi, 1, atrpoi)
+else if not na(swing_low)
+    f_array_add_pop(swing_low_values, swing_low)
+    f_array_add_pop(swing_low_bns, bar_index[swing_length])
+    f_sh_sl_labels(swing_low_values, -1)
+    f_supply_demand(swing_low_values, swing_low_bns, current_demand_box, current_demand_poi, -1, atrpoi)
+
+f_sd_to_bos(current_supply_box, supply_bos, current_supply_poi, 1)
+f_sd_to_bos(current_demand_box, demand_bos, current_demand_poi, -1)
+
+f_extend_box_endpoint(current_supply_box)
+f_extend_box_endpoint(current_demand_box)
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//Support and Resistance Power Channel [ChartPrime]
+
+// ───────────────────────────────────────────────
+// Toggle (only visible setting)
+// ───────────────────────────────────────────────
+bool show_sr_power = input.bool(true, "Show S&R Power Channel")
+
+// ───────────────────────────────────────────────
+// Fixed Settings (hidden from UI)
+// ───────────────────────────────────────────────
+var int   length = 130
+var int   extend = 30
+var color t_col  = color.fuchsia
+var color b_col  = color.green
+
+// ───────────────────────────────────────────────
+// Custom type
+// ───────────────────────────────────────────────
+type sr_data
+    line sup
+    line res
+    box  sup_area
+    box  res_area
+    label sup_label
+    label res_label
+    label mid_label
+
+// ───────────────────────────────────────────────
+// Functions
+// ───────────────────────────────────────────────
+max_min(length) =>
+    var maxArr = array.new<float>(length)
+    var minArr = array.new<float>(length)
+    if barstate.islast
+        for i = 0 to length - 1
+            array.set(maxArr, i, high[i])
+            array.set(minArr, i, low[i])
+        [array.max(maxArr), array.min(minArr)]
+    else
+        [na, na]
+
+delte_(sr_data d) =>
+    if not na(d)
+        if not na(d.sup)
+            line.delete(d.sup)
+        if not na(d.res)
+            line.delete(d.res)
+        if not na(d.sup_area)
+            box.delete(d.sup_area)
+        if not na(d.res_area)
+            box.delete(d.res_area)
+        if not na(d.sup_label)
+            label.delete(d.sup_label)
+        if not na(d.res_label)
+            label.delete(d.res_label)
+        if not na(d.mid_label)
+            label.delete(d.mid_label)
+
+power(sr_data d) =>
+    int buy  = 0
+    int sell = 0
+    if barstate.islast
+        for i = 0 to length - 1
+            buy  += close[i] > open[i] ? 1 : 0
+            sell += close[i] < open[i] ? 1 : 0
+    if not na(d.sup_area)
+        d.sup_area.set_text("   Buy Power: " + str.tostring(buy))
+        d.sup_area.set_text_color(chart.fg_color)
+        d.sup_area.set_text_halign(text.align_left)
+        d.sup_area.set_text_size(size.normal)
+    if not na(d.res_area)
+        d.res_area.set_text("   Sell Power: " + str.tostring(sell))
+        d.res_area.set_text_color(chart.fg_color)
+        d.res_area.set_text_halign(text.align_left)
+        d.res_area.set_text_size(size.normal)
+
+signals(sr_data d) =>
+    if barstate.islast and not na(d.sup_area) and not na(d.res_area)
+        float top = d.sup_area.get_top()
+        float bot = d.res_area.get_bottom()
+        for i = 0 to length - 1
+            low_1  = low[i]
+            low_2  = low[i > 0 ? i + 1 : i]
+            high_1 = high[i]
+            high_2 = high[i > 0 ? i + 1 : i]
+            index  = bar_index - i
+            if low_1 > top and low_2 <= top
+                label.new(index, low_2, "◈", textcolor = b_col, color = color.new(color.white, 100), style = label.style_label_up, size = size.large)
+            if high_1 < bot and high_2 >= bot
+                label.new(index, high_2, "◈", textcolor = t_col, color = color.new(color.white, 100), style = label.style_label_down, size = size.large)
+
+// ───────────────────────────────────────────────
+// Main logic
+// ───────────────────────────────────────────────
+var sr_data d = sr_data.new(na, na, na, na, na, na, na)
+
+run_indicator() =>
+    float atr = ta.atr(200) * 0.5
+    [max, min] = max_min(length)
+
+    if barstate.islast and not na(max) and not na(min)
+        delte_(d)
+
+        // Find which bars had the max and min
+        int maxIndex = na
+        int minIndex = na
+        for i = 0 to length - 1
+            if high[i] == max
+                maxIndex := bar_index - i
+            if low[i] == min
+                minIndex := bar_index - i
+
+        // ✖ markers
+        label.new(maxIndex, max, "✖", color = color(na), textcolor = t_col, size = size.normal, style = label.style_label_center)
+        label.new(minIndex, min, "✖", color = color(na), textcolor = b_col, size = size.normal, style = label.style_label_center)
+
+        // Lines and boxes
+        d.sup      := line.new(bar_index - length, max + atr, bar_index + extend + 30, max + atr, color = t_col)
+        d.res      := line.new(bar_index - length, min - atr, bar_index + extend + 30, min - atr, color = b_col)
+        d.res_area := box.new(bar_index - length, max + atr, bar_index + extend, max - atr, na, bgcolor = color.new(t_col, 80))
+        d.sup_area := box.new(bar_index - length, min + atr, bar_index + extend, min - atr, na, bgcolor = color.new(b_col, 80))
+
+        // Price labels
+        float mid_price = (max + min) / 2
+        d.sup_label := label.new(bar_index + extend, max, str.tostring(max, format.mintick), textcolor = chart.fg_color, color = color.new(color.white, 100), style = label.style_label_right)
+        d.res_label := label.new(bar_index + extend, min, str.tostring(min, format.mintick), textcolor = chart.fg_color, color = color.new(color.white, 100), style = label.style_label_right)
+        d.mid_label := label.new(bar_index + extend, mid_price, str.tostring(mid_price, format.mintick), textcolor = color.gray, color = color.new(color.white, 100), style = label.style_label_right)
+
+    signals(d)
+    power(d)
+
+// ───────────────────────────────────────────────
+// Run only if toggle is ON
+// ───────────────────────────────────────────────
+if show_sr_power
+    run_indicator()
+
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// Automated R1, R2, S1, S2 UBEP, LBEP, close, high, low, Levels by Vinoth
+// === Inputs ===
+// === Inputs (only keep these visible) ===
+
+enableLevels = input.bool(true, "Enable Automated Levels")
+pricesCSV   = input.string("25005.50,25037.30,24940.15,25120.05,25151.3,24963.85,24919.7,25232.8,24867.2", "Input MATH levels (comma separated)")
+
+// === Fixed (hidden) settings ===
+var int  lineWidth   = 2       // fixed line width
+var bool showLabels  = true    // always show labels
+var bool extendRight = true    // always extend right
+var int  maxHistory  = 500     // half-length of lines
+var int  labelTransp = 20      // label transparency
+
+// === Helpers ===
+splitAndTrim(s) =>
+    arr = str.split(s, ",")
+    for i = 0 to array.size(arr) - 1
+        array.set(arr, i, str.trim(array.get(arr, i)))
+    arr
+
+// === Default Labels ===
+defaultLabels = array.from("PrevClose","PrevHigh","PrevLow","R1","R2","S1","S2","UpperBEP","LowerBEP")
+
+// === Parse inputs ===
+priceTokens = splitAndTrim(pricesCSV)
+nPrices     = math.min(array.size(priceTokens), array.size(defaultLabels))
+
+// Persistent arrays
+var line[]  linesArr  = array.new_line()
+var label[] labelsArr = array.new_label()
+
+// Cleanup on first bar
+if barstate.isfirst
+    for ln in linesArr
+        if not na(ln)
+            line.delete(ln)
+    for lb in labelsArr
+        if not na(lb)
+            label.delete(lb)
+    array.clear(linesArr)
+    array.clear(labelsArr)
+
+// Fixed palette
+palette = array.from(color.black, color.green, color.green, color.red, color.red, color.blue, color.blue, color.gray, color.gray)
+
+// === Draw/update each bar ===
+if enableLevels
+    for i = 0 to nPrices - 1
+        rawPriceStr = array.get(priceTokens, i)
+        p = str.tonumber(rawPriceStr)
+
+        if not na(p)
+            col = array.get(palette, i % array.size(palette))
+
+            // --- Line ---
+            line ln = na
+            if i >= array.size(linesArr)
+                ln := line.new(bar_index - maxHistory, p, bar_index + (extendRight ? maxHistory : 0), p, xloc.bar_index)
+                array.push(linesArr, ln)
+            else
+                ln := array.get(linesArr, i)
+                if na(ln)
+                    ln := line.new(bar_index - maxHistory, p, bar_index + (extendRight ? maxHistory : 0), p, xloc.bar_index)
+                    array.set(linesArr, i, ln)
+                else
+                    line.set_xy1(ln, bar_index - maxHistory, p)
+                    line.set_xy2(ln, bar_index + (extendRight ? maxHistory : 0), p)
+            line.set_color(ln, col)
+            line.set_width(ln, lineWidth)
+
+            // --- Label ---
+            if showLabels
+                lblTxt = array.get(defaultLabels, i) + ": " + str.tostring(p, format.mintick)
+                label lab = na
+                if i >= array.size(labelsArr)
+                    lab := label.new(bar_index + (extendRight ? 1 : 0), p, lblTxt, xloc.bar_index, yloc.price, style=label.style_label_left)
+                    array.push(labelsArr, lab)
+                else
+                    lab := array.get(labelsArr, i)
+                    if na(lab)
+                        lab := label.new(bar_index + (extendRight ? 1 : 0), p, lblTxt, xloc.bar_index, yloc.price, style=label.style_label_left)
+                        array.set(labelsArr, i, lab)
+                    else
+                        label.set_xy(lab, bar_index + (extendRight ? 1 : 0), p)
+                        label.set_text(lab, lblTxt)
+                        label.set_color(lab, color.new(col, labelTransp))
+                        label.set_textcolor(lab, color.white)
