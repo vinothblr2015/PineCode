@@ -9,3 +9,4 @@
 9. --- Daily, Weekly, Monthly ADR Levels ---
 10. --- Accurate Swing Buy and Sell ---
 11. ---Supply and Demand ---
+12. --- Automated Level from Python script - Reference Option Trick Trade ---
