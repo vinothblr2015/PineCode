@@ -1,0 +1,211 @@
+//@version=5
+indicator("Prev Day CE/PE Levels (market-close robust, fixed date-id) + Manual Level", overlay=true, max_lines_count=60)
+
+// ---------- Inputs
+symbolRoot = input.string("NIFTY", "Underlying root")
+expiry     = input.string("250916", "Expiry (YYMMDD)")
+strike     = input.int(25100, "Strike")
+exchange   = input.string("", "Exchange prefix (e.g. 'NSE:' or leave blank)")
+
+showCE     = input.bool(true, "Show CE levels")
+showPE     = input.bool(true, "Show PE levels")
+showLabels = input.bool(true, "Show price labels")
+showDebug  = input.bool(true, "Show debug info")
+
+// market close settings (change if needed)
+mcHour     = input.int(15, "Market close hour (24h)", minval=0, maxval=23)
+mcMin      = input.int(30, "Market close minute", minval=0, maxval=59)
+tz         = input.string("Asia/Kolkata", "Timezone for market-close check")
+
+// If you want to FORCE using today's daily after market close even if provider hasn't published it yet:
+forceAfterClose = input.bool(true, "Force use today's values after market close (fallback)")
+
+// ---------- Manual numeric level (simple price)
+manualLevel = input.float(0.0, "Manual Level (0 = disabled)")
+showManual  = input.bool(true, "Show Manual Level")
+
+// ---------- build tickers
+baseTicker = symbolRoot + expiry
+ceTicker   = exchange + baseTicker + "C" + str.tostring(strike)
+peTicker   = exchange + baseTicker + "P" + str.tostring(strike)
+
+// ---------- request daily series (top-level)
+// daily OHLC
+ceDailyH = request.security(ceTicker, "D", high,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+ceDailyL = request.security(ceTicker, "D", low,   gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+ceDailyC = request.security(ceTicker, "D", close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+peDailyH = request.security(peTicker, "D", high,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+peDailyL = request.security(peTicker, "D", low,   gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+peDailyC = request.security(peTicker, "D", close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+
+// daily date-id (year*10000 + month*100 + day) fetched from the D timeframe
+ceDailyDate = request.security(ceTicker, "D", year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+peDailyDate = request.security(peTicker, "D", year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+
+// ---------- compute "today" id on chart (in same tz)
+todayDate = year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz)
+h = hour(time, tz)
+m = minute(time, tz)
+afterMC_by_time = (h > mcHour) or (h == mcHour and m >= mcMin)
+
+// ---------- decide whether to use today's daily as "prev"
+ceHasToday = not na(ceDailyDate) and ceDailyDate == todayDate
+peHasToday = not na(peDailyDate) and peDailyDate == todayDate
+
+useTodayForCE = ceHasToday or (forceAfterClose and afterMC_by_time)
+useTodayForPE = peHasToday or (forceAfterClose and afterMC_by_time)
+
+// ---------- choose values (if today's available use daily[0], else use daily[1])
+cePrevH = useTodayForCE ? ceDailyH : ceDailyH[1]
+cePrevL = useTodayForCE ? ceDailyL : ceDailyL[1]
+cePrevC = useTodayForCE ? ceDailyC : ceDailyC[1]
+
+pePrevH = useTodayForPE ? peDailyH : peDailyH[1]
+pePrevL = useTodayForPE ? peDailyL : peDailyL[1]
+pePrevC = useTodayForPE ? peDailyC : peDailyC[1]
+
+// ---------- formatter & persistent objects
+fmt(x) => na(x) ? "n/a" : str.tostring(x, "#.##")
+var line ceH_line  = na
+var line ceL_line  = na
+var label ceH_lbl  = na
+var label ceL_lbl  = na
+var line peH_line  = na
+var line peL_line  = na
+var label peH_lbl  = na
+var label peL_lbl  = na
+
+// manual persistent objects
+var line manual_line = na
+var label manual_lbl = na
+
+var label dbg = na
+x1 = bar_index > 0 ? bar_index - 1 : bar_index
+x2 = bar_index
+
+// ---------- CE lines
+if showCE
+    if not na(cePrevH)
+        if na(ceH_line)
+            ceH_line := line.new(x1, cePrevH, x2, cePrevH, extend=extend.right, color=color.green, width=2)
+        else
+            line.set_xy1(ceH_line, x1, cePrevH)
+            line.set_xy2(ceH_line, x2, cePrevH)
+        if showLabels
+            txt = "CE H: " + fmt(cePrevH)
+            if na(ceH_lbl)
+                ceH_lbl := label.new(x2, cePrevH, txt, yloc=yloc.price, style=label.style_label_right, color=color.new(color.green,0), textcolor=color.white)
+            else
+                label.set_xy(ceH_lbl, x2, cePrevH)
+                label.set_text(ceH_lbl, txt)
+    else
+        if not na(ceH_line)
+            line.delete(ceH_line)
+            ceH_line := na
+        if not na(ceH_lbl)
+            label.delete(ceH_lbl)
+            ceH_lbl := na
+
+if showCE
+    if not na(cePrevL)
+        if na(ceL_line)
+            ceL_line := line.new(x1, cePrevL, x2, cePrevL, extend=extend.right, color=color.red, width=2)
+        else
+            line.set_xy1(ceL_line, x1, cePrevL)
+            line.set_xy2(ceL_line, x2, cePrevL)
+        if showLabels
+            txt = "CE L: " + fmt(cePrevL)
+            if na(ceL_lbl)
+                ceL_lbl := label.new(x2, cePrevL, txt, yloc=yloc.price, style=label.style_label_right, color=color.new(color.red,0), textcolor=color.white)
+            else
+                label.set_xy(ceL_lbl, x2, cePrevL)
+                label.set_text(ceL_lbl, txt)
+    else
+        if not na(ceL_line)
+            line.delete(ceL_line)
+            ceL_line := na
+        if not na(ceL_lbl)
+            label.delete(ceL_lbl)
+            ceL_lbl := na
+
+// ---------- PE lines
+if showPE
+    if not na(pePrevH)
+        if na(peH_line)
+            peH_line := line.new(x1, pePrevH, x2, pePrevH, extend=extend.right, color=color.blue, width=2)
+        else
+            line.set_xy1(peH_line, x1, pePrevH)
+            line.set_xy2(peH_line, x2, pePrevH)
+        if showLabels
+            txt = "PE H: " + fmt(pePrevH)
+            if na(peH_lbl)
+                peH_lbl := label.new(x2, pePrevH, txt, yloc=yloc.price, style=label.style_label_right, color=color.new(color.blue,0), textcolor=color.white)
+            else
+                label.set_xy(peH_lbl, x2, pePrevH)
+                label.set_text(peH_lbl, txt)
+    else
+        if not na(peH_line)
+            line.delete(peH_line)
+            peH_line := na
+        if not na(peH_lbl)
+            label.delete(peH_lbl)
+            peH_lbl := na
+
+if showPE
+    if not na(pePrevL)
+        if na(peL_line)
+            peL_line := line.new(x1, pePrevL, x2, pePrevL, extend=extend.right, color=color.orange, width=2)
+        else
+            line.set_xy1(peL_line, x1, pePrevL)
+            line.set_xy2(peL_line, x2, pePrevL)
+        if showLabels
+            txt = "PE L: " + fmt(pePrevL)
+            if na(peL_lbl)
+                peL_lbl := label.new(x2, pePrevL, txt, yloc=yloc.price, style=label.style_label_right, color=color.new(color.orange,0), textcolor=color.white)
+            else
+                label.set_xy(peL_lbl, x2, pePrevL)
+                label.set_text(peL_lbl, txt)
+    else
+        if not na(peL_line)
+            line.delete(peL_line)
+            peL_line := na
+        if not na(peL_lbl)
+            label.delete(peL_lbl)
+            peL_lbl := na
+
+// ---------- DRAW / UPDATE MANUAL LEVEL (simple numeric price)
+if manualLevel != 0 and showManual
+    // create or update a single persistent black line
+    if na(manual_line)
+        manual_line := line.new(x1, manualLevel, x2, manualLevel, extend=extend.right, color=color.black, width=2)
+    else
+        line.set_xy1(manual_line, x1, manualLevel)
+        line.set_xy2(manual_line, x2, manualLevel)
+    // label: black background, white text (readable). Text shows value.
+    if showLabels
+        manualTxt = "Level: " + fmt(manualLevel)
+        if na(manual_lbl)
+            manual_lbl := label.new(x2, manualLevel, manualTxt, yloc=yloc.price, style=label.style_label_right, color=color.new(color.black,0), textcolor=color.white)
+        else
+            label.set_xy(manual_lbl, x2, manualLevel)
+            label.set_text(manual_lbl, manualTxt)
+else
+    if not na(manual_line)
+        line.delete(manual_line)
+        manual_line := na
+    if not na(manual_lbl)
+        label.delete(manual_lbl)
+        manual_lbl := na
+
+// ---------- Debug (single label)
+if showDebug
+    dbgTxt = "CE tkr: " + ceTicker + "\nceDailyDate: " + str.tostring(ceDailyDate) + " ceHasToday=" + str.tostring(ceHasToday) + "\nPE tkr: " + peTicker + "\npeDailyDate: " + str.tostring(peDailyDate) + " peHasToday=" + str.tostring(peHasToday) + "\nuseTodayForCE=" + str.tostring(useTodayForCE) + " useTodayForPE=" + str.tostring(useTodayForPE) + "\nafterMC_by_time=" + str.tostring(afterMC_by_time) + " (time " + str.tostring(h) + ":" + str.tostring(m) + " " + tz + ")"
+    if na(dbg)
+        dbg := label.new(bar_index, high, dbgTxt, yloc=yloc.abovebar, style=label.style_label_left, color=color.new(color.black,80), textcolor=color.white)
+    else
+        label.set_xy(dbg, bar_index, high)
+        label.set_text(dbg, dbgTxt)
+else
+    if not na(dbg)
+        label.delete(dbg)
+        dbg := na
