@@ -1,0 +1,185 @@
+import requests, zipfile, io, csv, codecs, yfinance as yf
+
+URL = "https://nsearchives.nseindia.com/content/fo/fo.zip"
+EXPIRY_FILTER = "23-SEP-2025"   # change if needed
+STRIKE_RANGE = 2   # ±2 strikes
+
+FIELDS = [
+    "PREVIOUS_S",
+    "OPEN_PRICE",
+    "HIGH_PRICE",
+    "LOW_PRICE",
+    "CLOSE_PRIC",
+    "SETTLEMENT",
+    "UNDRLNG_ST"
+]
+
+def get_nifty_ohlc():
+    # Try Yahoo first
+    tickers = ["^NSEI", "^NSEINDEX"]
+    for t in tickers:
+        try:
+            ticker = yf.Ticker(t)
+            hist = ticker.history(period="2d", interval="1d")
+            if not hist.empty and len(hist) >= 1:
+                latest = hist.iloc[-1]
+                return {
+                    "Open": round(latest["Open"], 2),
+                    "High": round(latest["High"], 2),
+                    "Low": round(latest["Low"], 2),
+                    "Close": round(latest["Close"], 2),
+                }
+        except:
+            pass
+
+    # Fallback to NSE live
+    try:
+        url = "https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        session = requests.Session()
+        session.headers.update(headers)
+        data = session.get(url, timeout=30).json()
+        spot = data["records"]["underlyingValue"]
+        return {"Open": spot, "High": spot, "Low": spot, "Close": spot}
+    except:
+        raise Exception("❌ Could not fetch NIFTY OHLC from Yahoo or NSE")
+
+
+def fetch_latest_bhavcopy():
+    headers = {"User-Agent": "Mozilla/5.0"}
+    r = requests.get(URL, headers=headers, timeout=60)
+    r.raise_for_status()
+    return r.content
+
+def parse_and_filter(bhav_bytes):
+    z = zipfile.ZipFile(io.BytesIO(bhav_bytes))
+    name = [n for n in z.namelist() if n.startswith("op")][0]
+    rows = []
+    with z.open(name) as fh:
+        reader = csv.DictReader(codecs.iterdecode(fh, "utf-8"))
+        for row in reader:
+            contract = row.get("CONTRACT_D", "")
+            if not contract.startswith("OPTIDXNIFTY"):
+                continue
+            if EXPIRY_FILTER not in contract:
+                continue
+            try:
+                strike = int(contract[-5:])
+            except:
+                continue
+            rec = {k: row.get(k, "") for k in FIELDS}
+            rec["STRIKE"] = strike
+            rec["TYPE"] = "CE" if "CE" in contract else "PE"
+            rows.append(rec)
+    return rows
+
+def fmt(val):
+    try:
+        if val is None or val == "":
+            return ""
+        return f"{float(val):.2f}"
+    except:
+        return str(val)
+
+def main():
+    # 1) NIFTY OHLC
+    nifty = get_nifty_ohlc()
+    print("📊 NIFTY 50 OHLC (Yahoo Finance):")
+    print(f"Open: {nifty['Open']} | High: {nifty['High']} | Low: {nifty['Low']} | Close: {nifty['Close']}\n")
+
+    # 2) Bhavcopy
+    bhav_bytes = fetch_latest_bhavcopy()
+    rows = parse_and_filter(bhav_bytes)
+
+    strikes = sorted({r["STRIKE"] for r in rows})
+
+    # --- Find lowest (CE+PE)/2 strike ---
+    best_strike, best_avg = None, float("inf")
+    best_ce_row, best_pe_row = None, None
+    for strike in strikes:
+        ce_row = next((r for r in rows if r["STRIKE"] == strike and r["TYPE"] == "CE"), None)
+        pe_row = next((r for r in rows if r["STRIKE"] == strike and r["TYPE"] == "PE"), None)
+        if not ce_row or not pe_row:
+            continue
+        try:
+            ce_val = float(ce_row["SETTLEMENT"]) if ce_row["SETTLEMENT"] else None
+            pe_val = float(pe_row["SETTLEMENT"]) if pe_row["SETTLEMENT"] else None
+        except:
+            continue
+        if ce_val is None or pe_val is None:
+            continue
+        avg = (ce_val + pe_val) / 2
+        if avg < best_avg:
+            best_avg = avg
+            best_strike = strike
+            best_ce_row, best_pe_row = ce_row, pe_row
+
+    if not best_strike:
+        print("❌ No valid strike with CE & PE settlements")
+        return
+
+    # --- Print ±2 strikes around best_strike ---
+    idx = strikes.index(best_strike)
+    neighbor_strikes = strikes[max(0, idx-STRIKE_RANGE): idx+STRIKE_RANGE+1]
+
+    print("📍 ±2 Strikes Around Best Strike\n")
+    header = "CONTRACT_D\t" + "\t".join(FIELDS) + "\tAVG(CE+PE)/2"
+    print(header)
+
+    for strike in neighbor_strikes:
+        ce_row = next((r for r in rows if r["STRIKE"] == strike and r["TYPE"] == "CE"), None)
+        pe_row = next((r for r in rows if r["STRIKE"] == strike and r["TYPE"] == "PE"), None)
+
+        ce_val = float(ce_row["SETTLEMENT"]) if ce_row and ce_row["SETTLEMENT"] else None
+        pe_val = float(pe_row["SETTLEMENT"]) if pe_row and pe_row["SETTLEMENT"] else None
+
+        avg_val = (ce_val + pe_val) / 2 if ce_val is not None and pe_val is not None else None
+
+        for row in [ce_row, pe_row]:
+            if row:
+                contract = f"OPTIDXNIFTY{EXPIRY_FILTER}{row['TYPE']}{strike}"
+                details = [fmt(row[k]) for k in FIELDS]
+                extra = fmt(avg_val) if row["TYPE"] == "PE" else ""  # avg only once
+                print(f"{contract}\t" + "\t".join(details) + f"\t{extra}")
+
+    # --- Best strike details ---
+    print(f"\n✅ Lowest (CE+PE)/2 strike: {best_strike}, Avg={best_avg:.2f}\n")
+    print(header)
+    for row in [best_ce_row, best_pe_row]:
+        if row:
+            contract = f"OPTIDXNIFTY{EXPIRY_FILTER}{row['TYPE']}{best_strike}"
+            details = [fmt(row[k]) for k in FIELDS]
+            avg_col = fmt(best_avg) if row["TYPE"] == "PE" else ""
+            print(f"{contract}\t" + "\t".join(details) + f"\t{avg_col}")
+
+    # --- Levels calculation ---
+    ce_low = float(best_ce_row["LOW_PRICE"]) if best_ce_row and best_ce_row["LOW_PRICE"] else 0
+    ce_high = float(best_ce_row["HIGH_PRICE"]) if best_ce_row and best_ce_row["HIGH_PRICE"] else 0
+    pe_low = float(best_pe_row["LOW_PRICE"]) if best_pe_row and best_pe_row["LOW_PRICE"] else 0
+    pe_high = float(best_pe_row["HIGH_PRICE"]) if best_pe_row and best_pe_row["HIGH_PRICE"] else 0
+
+    ce_settle = float(best_ce_row["SETTLEMENT"]) if best_ce_row and best_ce_row["SETTLEMENT"] else 0
+    pe_settle = float(best_pe_row["SETTLEMENT"]) if best_pe_row and best_pe_row["SETTLEMENT"] else 0
+    total_premium = ce_settle + pe_settle
+
+    R1 = best_strike + ce_low
+    R2 = best_strike + ce_high
+    S1 = best_strike - pe_low
+    S2 = best_strike - pe_high
+    upper_bep = best_strike + total_premium
+    lower_bep = best_strike - total_premium
+
+    print(f"\n📈 Levels for Strike {best_strike}:")
+    print(f"R1 = {R1:.2f}")
+    print(f"R2 = {R2:.2f}")
+    print(f"S1 = {S1:.2f}")
+    print(f"S2 = {S2:.2f}")
+    print(f"Upper BEP = {upper_bep:.2f}")
+    print(f"Lower BEP = {lower_bep:.2f}")
+    
+    csv_line = f"{nifty['Close']},{nifty['High']},{nifty['Low']},{R1:.2f},{R2:.2f},{S1:.2f},{S2:.2f},{upper_bep:.2f},{lower_bep:.2f}"
+    print("\n📑 CSV Output:")
+    print(csv_line)
+
+if __name__ == "__main__":
+    main()
