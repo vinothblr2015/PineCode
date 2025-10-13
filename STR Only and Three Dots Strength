@@ -1,0 +1,218 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © vinothblr2015
+//@version=6
+indicator("STR Strength", overlay=false, max_lines_count=500, max_labels_count=500)
+// === Master Toggle ===
+show_table1 = input.bool(true, "STR Strength")
+// === Inputs ===
+call_symbol = input.symbol("NIFTY251014C25100", "Call Option")
+put_symbol  = input.symbol("NIFTY251014P25100", "Put Option")
+tf          = input.timeframe("1", "Timeframe for Options")
+volatility_threshold = input.float(5.0, "Volatility Threshold (%)", step=0.1)
+
+// Strength inputs
+smoothing   = input.bool(true, "Apply Strength Smoothing?")
+smooth_len  = input.int(3, "Strength Smoothing Length", minval=1)
+
+// === Fetch OHLCV for CE & PE ===
+[ce_open, ce_high, ce_low, ce_close, ce_vol] = request.security(call_symbol, tf, [open, high, low, close, volume], ignore_invalid_symbol=true)
+[pe_open, pe_high, pe_low, pe_close, pe_vol] = request.security(put_symbol, tf, [open, high, low, close, volume], ignore_invalid_symbol=true)
+
+// === Straddle Price ===
+straddle_price = na(ce_close) or na(pe_close) ? na : ce_close + pe_close
+
+// Error Handling
+if na(ce_close) or na(pe_close)
+    label.new(bar_index, high, "Error: Invalid symbol or no data", color=color.red, style=label.style_label_down, textcolor=color.white)
+
+// === Straddle Change % ===
+straddle_change = ta.change(straddle_price) / straddle_price[1] * 100
+highlight_volatility = not na(straddle_change) and math.abs(straddle_change) > volatility_threshold
+
+// === VWAP (Daily Reset) ===
+newDay = ta.change(time("D")) != 0
+
+var float ce_pv   = na
+var float ce_volC = na
+var float pe_pv   = na
+var float pe_volC = na
+
+if newDay
+    ce_pv := na
+    ce_volC := na
+    pe_pv := na
+    pe_volC := na
+
+ce_pv   := na(ce_pv)   ? (ce_close * ce_vol) : (ce_pv + ce_close * ce_vol)
+ce_volC := na(ce_volC) ? ce_vol              : (ce_volC + ce_vol)
+pe_pv   := na(pe_pv)   ? (pe_close * pe_vol) : (pe_pv + pe_close * pe_vol)
+pe_volC := na(pe_volC) ? pe_vol              : (pe_volC + pe_vol)
+
+ce_vwap_daily = ce_volC > 0 ? ce_pv / ce_volC : na
+pe_vwap_daily = pe_volC > 0 ? pe_pv / pe_volC : na
+
+// === Strength (Deviation from VWAP) ===
+ce_strength_raw = ce_close - ce_vwap_daily
+pe_strength_raw = pe_close - pe_vwap_daily
+ce_strength = smoothing ? ta.sma(ce_strength_raw, smooth_len) : ce_strength_raw
+pe_strength = smoothing ? ta.sma(pe_strength_raw, smooth_len) : pe_strength_raw
+
+// === Strength baseline & plots ===
+hline(0, "Zero Line", color=color.new(color.black, 60))
+plot(ce_strength, color=color.new(color.lime, 0), linewidth=3, title="Call Strength (CE)")
+plot(pe_strength, color=color.new(color.red, 0), linewidth=3, title="Put Strength (PE)")
+
+// === Volatility Highlight (background only) ===
+bgcolor(highlight_volatility ? color.new(color.yellow, 80) : na)
+
+// === Table with Live Values (kept for quick glance) ===
+
+
+// var table price_table = table.new(position.bottom_left, 3, 6, border_width=1, border_color=color.gray)
+// if barstate.islast
+//     table.cell(price_table, 0, 0, "Call Strength", bgcolor=color.lime, text_color=color.black)
+//     table.cell(price_table, 1, 0, not na(ce_strength) ? str.tostring(ce_strength, "#.##") : "N/A", bgcolor=color.lime, text_color=color.black)
+//     table.cell(price_table, 0, 1, "Put Strength", bgcolor=color.red, text_color=color.white)
+//     table.cell(price_table, 1, 1, not na(pe_strength) ? str.tostring(pe_strength, "#.##") : "N/A", bgcolor=color.red, text_color=color.white)
+//     table.cell(price_table, 0, 2, "Straddle", bgcolor=color.black, text_color=color.white)
+//     table.cell(price_table, 1, 2, not na(straddle_price) ? str.tostring(straddle_price, "#.##") : "N/A", bgcolor=color.black, text_color=color.white)
+
+// === Volatility Labels ===
+if highlight_volatility
+    label.new(bar_index, 0, "V: " + str.tostring(straddle_change, "#.##") + "%", 
+              color=color.yellow, style=label.style_label_down, textcolor=color.black)
+//--------------------------------------------------------------------
+// === Master Toggle ===
+show_table = input.bool(true, "Show VWAP + Strength Table?")
+// === Inputs ===
+base_strike   = input.int(24700, "Base Strike")
+step          = input.int(50,  "Strike Step")   // 50 for NIFTY
+range_strikes = input.int(2,   "No. of Strikes (+/-)")
+expiry        = input.string("NIFTY251007", "Expiry Symbol Prefix")
+tf1            = input.timeframe("1", "Options Timeframe")
+txt_size      = input.string("tiny", "Dashboard Text Size", options=["tiny","small","normal","large"])
+table_pos     = input.string("top_right", "Dashboard Position", 
+                 options=["top_left","top_center","top_right","bottom_left","bottom_center","bottom_right"])
+
+// === VWAP Helper ===
+get_vwap(sym, tf1) =>
+    [c, vwap] = request.security(sym, tf, [close, ta.vwap(hlc3)], ignore_invalid_symbol=true)
+    [c, vwap]
+
+// === Trend Dots (Emoji) ===
+get_trend_dots(dev) =>
+    dots = "•"
+    if not na(dev)
+        if dev >= 20
+            dots := "🟢🟢🟢"
+        else if dev >= 10
+            dots := "🟢🟢"
+        else if dev > 0
+            dots := "🟢"
+        else if dev <= -20
+            dots := "🔴🔴🔴"
+        else if dev <= -10
+            dots := "🔴🔴"
+        else if dev < 0
+            dots := "🔴"
+    dots
+
+// ================= MAIN =================
+if show_table
+    cols = 6
+    rows = 2 * range_strikes + 1
+
+    // ✅ Create table only once based on input position
+    var table t = na
+    if barstate.isfirst
+        switch table_pos
+            "top_left"      => t := table.new(position.top_left, cols, rows + 4, border_width=1, border_color=color.gray)
+            "top_center"    => t := table.new(position.top_center, cols, rows + 4, border_width=1, border_color=color.gray)
+            "top_right"     => t := table.new(position.top_right, cols, rows + 4, border_width=1, border_color=color.gray)
+            "bottom_left"   => t := table.new(position.bottom_left, cols, rows + 4, border_width=1, border_color=color.gray)
+            "bottom_center" => t := table.new(position.bottom_center, cols, rows + 4, border_width=1, border_color=color.gray)
+            "bottom_right"  => t := table.new(position.bottom_right, cols, rows + 4, border_width=1, border_color=color.gray)
+
+    // Header row
+    if barstate.islast
+        table.cell(t, 0, 0, "Strike",  text_color=color.black, bgcolor=color.white, text_size=txt_size)
+        table.cell(t, 1, 0, "CE VWAP", text_color=color.black, bgcolor=color.white,  text_size=txt_size)
+        table.cell(t, 2, 0, "CE Tr",   text_color=color.black, bgcolor=color.white,  text_size=txt_size)
+        table.cell(t, 3, 0, "PE VWAP", text_color=color.black, bgcolor=color.white,    text_size=txt_size)
+        table.cell(t, 4, 0, "PE Tr",   text_color=color.black, bgcolor=color.white,    text_size=txt_size)
+        table.cell(t, 5, 0, "Meter",   text_color=color.black, bgcolor=color.white,   text_size=txt_size)
+
+    // First Pass: find lowest meter
+    float lowest_meter = na
+    int   lowest_strike = na
+    for i = -range_strikes to range_strikes
+        strike = base_strike + i * step
+        ce_symbol = expiry + "C" + str.tostring(strike)
+        pe_symbol = expiry + "P" + str.tostring(strike)
+
+        [ce_close, ce_vwap] = get_vwap(ce_symbol, tf1)
+        [pe_close, pe_vwap] = get_vwap(pe_symbol, tf1)
+
+        ce_strength = ce_close - ce_vwap
+        pe_strength = pe_close - pe_vwap
+        meter       = ce_strength - pe_strength
+
+        if not na(meter)
+            if na(lowest_meter) or meter < lowest_meter
+                lowest_meter := meter
+                lowest_strike := strike
+
+    // Totals
+    var float call_power = 0.0
+    var float put_power  = 0.0
+
+    // Second Pass: draw table
+    for i = -range_strikes to range_strikes
+        strike = base_strike + i * step
+        ce_symbol = expiry + "C" + str.tostring(strike)
+        pe_symbol = expiry + "P" + str.tostring(strike)
+
+        [ce_close, ce_vwap] = get_vwap(ce_symbol, tf1)
+        [pe_close, pe_vwap] = get_vwap(pe_symbol, tf1)
+
+        ce_strength = ce_close - ce_vwap
+        pe_strength = pe_close - pe_vwap
+        meter       = ce_strength - pe_strength
+
+        call_power += na(ce_strength) ? 0 : ce_strength
+        put_power  += na(pe_strength) ? 0 : pe_strength
+
+        row   = i + range_strikes + 1
+        color rowBg = na
+        if strike == lowest_strike
+            rowBg := color.new(color.yellow, 60)  // Highlight lowest meter row
+
+        if barstate.islast
+            table.cell(t, 0, row, str.tostring(strike), bgcolor=rowBg, text_color=color.black, text_size=txt_size)
+
+            ce_bg = na(ce_strength) ? color.gray : ce_strength >= 0 ? color.new(color.green, 0) : color.new(color.red, 0)
+            table.cell(t, 1, row, na(ce_vwap) ? "NA" : str.tostring(ce_vwap,"#.##"), text_color=color.black, bgcolor=ce_bg, text_size=txt_size)
+            table.cell(t, 2, row, get_trend_dots(ce_strength), bgcolor=rowBg, text_color=color.black, text_size=txt_size)
+
+            pe_bg = na(pe_strength) ? color.gray : pe_strength >= 0 ? color.new(color.green, 0) : color.new(color.red, 0)
+            table.cell(t, 3, row, na(pe_vwap) ? "NA" : str.tostring(pe_vwap,"#.##"), text_color=color.black, bgcolor=pe_bg, text_size=txt_size)
+            table.cell(t, 4, row, get_trend_dots(pe_strength), bgcolor=rowBg, text_color=color.black, text_size=txt_size)
+
+            meter_bg = na(meter) ? color.gray : meter >= 0 ? color.new(color.green, 0) : color.new(color.red, 0)
+            table.cell(t, 5, row, na(meter) ? "NA" : str.tostring(meter,"#.##"), text_color=color.black, bgcolor=meter_bg, text_size=txt_size)
+
+    // Totals at bottom
+    if barstate.islast
+        table.cell(t, 0, rows+2, "CallP", bgcolor=color.green, text_color=color.black, text_size=txt_size)
+        table.cell(t, 1, rows+2, str.tostring(call_power, "#.##"), bgcolor=color.green, text_color=color.black, text_size=txt_size)
+        table.cell(t, 3, rows+2, "PutP",  bgcolor=color.red,   text_color=color.black, text_size=txt_size)
+        table.cell(t, 4, rows+2, str.tostring(put_power,  "#.##"),  bgcolor=color.red,   text_color=color.black, text_size=txt_size)
+
+        net_bias = call_power - put_power
+        bias_bg  = na(net_bias) ? color.gray : (net_bias >= 0 ? color.new(color.green, 0) : color.new(color.red, 0))
+        bias_txt = (net_bias >= 0 ? "⬆️ " : "⬇️ ") + "Net Bias: " + str.tostring(net_bias, "#.##")
+
+        for c = 0 to cols - 1
+            table.cell(t, c, rows+3, "", bgcolor=bias_bg, text_size=txt_size)
+        table.merge_cells(t, 0, rows+3, cols-1, rows+3)
+        table.cell(t, 0, rows+3, bias_txt, bgcolor=bias_bg, text_color=color.black, text_size=txt_size)
