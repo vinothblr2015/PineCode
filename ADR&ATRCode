@@ -1,0 +1,513 @@
+///@version=5
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © thestratuchiha
+//indicator('timestamp', overlay=true)
+
+//Had help from Ngami7 for help to fix script. shoutout to him
+
+//  Credits to Serge_trades for "Average Daily Range X 3" as my script builds on his
+
+
+
+//@version=5
+indicator("ATRvsDTR + ADR Zone + SSS50%", overlay=true)
+
+// ATR vs DTR
+
+
+//inputs
+TimeFrame =       input.timeframe("D", "Timeframe for ATR Calculation", tooltip="Time you want ATR based on")
+firstperColor =      input.int(25, "Percentage the color will change at", tooltip="first color it will change at based of parameter you set")
+secondperColor =     input.int(50, "Percentage color will change at", tooltip="Second color it will change at based of parameter you set")
+thirdperColor =      input.int(75, "Percentage color will change at", tooltip="third color it will change at based of parameter you set")
+lastperColor =       input.int(100, "Percentage color will change at", tooltip="last color it will change at based of parameter you set")
+normalcolor =   input.color (color.gray, "Normal color", tooltip="Standard color before percentage change thresholds")
+colorchangefirst =   input.color(color.green, "Color over First percentage", tooltip="color it will change based on Firstper") 
+colorchangeSecond =  input.color(color.yellow, "Color over Second percentage", tooltip="color it will change based on Secondper") 
+colorchangeThird =  input.color(color.orange, "Color over Third percentage", tooltip="color it will change based on Thirdper") 
+colorchangeLast =  input.color(color.red,"Color over Last percentage", tooltip="color it will change based on Lastper")
+
+BoxPlacement = input.string(
+     position.bottom_right, "Box Placement", 
+     options = [position.bottom_right, position.bottom_left, position.top_right, position.top_center, position.bottom_center])
+
+
+//Prepare a table
+var table atrdtr = table.new(BoxPlacement, 3, 1, border_color= color.new(color.black, 25), border_width = 1)
+
+//Indicator math stuff
+atr = request.security(syminfo.ticker, TimeFrame, ta.atr(14))
+atr2 = math.round(atr,2)
+dtr = request.security(syminfo.ticker,TimeFrame, math.round(high - low,2))
+atrp = math.round(dtr/atr * 100)
+
+
+
+
+
+//Draw Table
+if barstate.islast
+    table.cell(atrdtr, 0,0, text = "ATR: " + str.tostring(atr2))
+    table.cell(atrdtr, 1,0, text = "DTR: " + str.tostring(dtr))
+    table.cell(atrdtr, 2,0, text = str.tostring(atrp)+ "%")
+    if atrp > firstperColor 
+        table.set_bgcolor(atrdtr, colorchangefirst)
+    if atrp > secondperColor 
+        table.set_bgcolor(atrdtr, colorchangeSecond) 
+    if atrp > thirdperColor 
+        table.set_bgcolor(atrdtr, colorchangeThird)
+    if atrp > lastperColor
+        table.set_bgcolor(atrdtr, colorchangeLast)
+
+
+
+//ADR side of script below
+text_ADR1_high = 'ADR1 Upper'
+text_ADR2_high = 'ADR2 Upper'
+
+text_ADR1_low = 'ADR1 Lower'
+text_ADR2_low = 'ADR2 Lower'
+
+text_open = 'Open'
+text_openWK = 'Open WK'
+
+text_fitypercent = '50%'
+text_fitypercent2 = '50% 2'
+
+
+var lime        = #00FF00 //ADR2 Low
+var chartreuse  = #80FF00 //ADR1 Low
+var orange      = #FF8000 //ADR1 High
+var redorange   = #FF4000 //ADR2 High
+var gray        = #808080 //Open
+var red         = #FF0000 ////50%
+var purple      = #8d53ac ////second 50%
+var blue        = #7DF9FF ////Open WK
+
+
+
+//***Start of Inputs
+var labels_enabled = input.bool(defval=true, title='Show labels')
+
+
+var adr_1 = input.int(title='ADR 1', defval = 10, minval = 1, group='ADR Periods')
+var adr_2 = input.int(title='ADR 2', defval = 5, minval = 1, group='ADR Periods')
+
+
+var color_ADR1_high = input.color(defval=color.new(orange  ,0), title=text_ADR1_high, group='Colors')
+var color_ADR2_high = input.color(defval=color.new(redorange,0), title=text_ADR2_high, group='Colors')
+
+var color_ADR1_low = input.color(defval=color.new(chartreuse  ,0),   title=text_ADR1_low, group='Colors')
+var color_ADR2_low = input.color(defval=color.new(lime,0),  title=text_ADR2_low, group='Colors')
+
+var color_open     = input.color(defval=color.new(gray ,0), title=text_open, group='Colors')
+var color_openwk   = input.color(defval=color.new(blue ,0), title=text_openWK, group='Colors')
+
+adrUppercolorfill = input.color(color.red, "Adr Upper Zone Color",tooltip="Color of zone between Upper Adr 1 and 2")
+adrlowercolorfill = input.color(color.green, "Adr lower Zone Color",tooltip="Color of zone between Lower Adr 1 and 2")
+
+openofWK = input.bool(defval=true, title='Weekly Open')
+
+///////50% inputs
+
+var fitypercentlineColor = input.color(defval=color.new(red ,0), title=text_fitypercent, group='SSS50%Rule')
+fiftypercentTF = input.timeframe("D", "SSS50TimeFrame", tooltip= "TimeFrame you want the 50% line to be drawn based on", group= 'SSS50%Rule')
+fitypercentOnorOFF = input.bool(defval=true, title='50%Line On/Off') 
+
+var fitypercentlineColor2 = input.color(defval=color.new(purple ,0), title=text_fitypercent, group='SSS50%Rule')
+fiftypercentTF2 = input.timeframe("60", "SSS50TimeFrame", tooltip= "TimeFrame you want the 2nd 50% line to be drawn based on", group= 'SSS50%Rule')
+fitypercentOnorOFF2 = input.bool(defval=true, title='50%Line On/Off') 
+
+
+
+   
+//***End of Inputs
+
+//***Start of local functions definiton***
+
+draw_line(_x1, _y1, _x2, _y2, _xloc, _extend, _color, _style, _width) =>
+    dline = line.new(x1=_x1, y1=_y1, x2=_x2, y2=_y2, xloc=_xloc, extend=_extend, color=_color, style=_style, width=_width)
+    line.delete(dline[1])
+    
+
+draw_label(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
+    dlabel = label.new(x=_x, y=_y, text=_text, xloc=_xloc, yloc=_yloc, color=_color, style=_style, textcolor=_textcolor, size=_size, textalign=_textalign, tooltip=_tooltip)
+    label.delete(dlabel[1])
+
+//If security is futures - replace the ticker with continuous contract
+tickerid_func() =>
+    tickerid = syminfo.tickerid
+    if syminfo.type == 'futures'
+        tickerid := syminfo.root + '1!'
+
+//Function to calculate ADR levels
+//Parameters:
+//  * lengthInput - ADR period
+//  * hi_low - true-->High, else-->Low 
+adr_func(lengthInput,hi_low) =>
+    float result = 0
+    float adr = 0
+    open_ = request.security(tickerid_func(), "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+	adr_High = request.security(tickerid_func(), "D", ta.sma(high[1], lengthInput), barmerge.gaps_off, barmerge.lookahead_on)
+    adr_Low = request.security(tickerid_func(), "D", ta.sma(low[1], lengthInput), barmerge.gaps_off, barmerge.lookahead_on)
+    adr := (adr_High - adr_Low)
+    
+    if hi_low//High
+        result := adr/2 + open_
+    else    //Low
+        result := open_ - adr/2    
+
+////////50 percent calculation
+
+highofTFinput = request.security(syminfo.tickerid, fiftypercentTF, high[1], lookahead = barmerge.lookahead_on)
+
+lowofTFinput = request.security(syminfo.tickerid, fiftypercentTF, low[1], lookahead = barmerge.lookahead_on)
+ 
+fiftypercentLevel = (lowofTFinput - highofTFinput) * 0.5 + highofTFinput
+
+highofTFinput2 = request.security(syminfo.tickerid, fiftypercentTF2, high[1], lookahead = barmerge.lookahead_on)
+
+lowofTFinput2 = request.security(syminfo.tickerid, fiftypercentTF2, low[1], lookahead = barmerge.lookahead_on)
+
+fiftypercentLevel2 = (lowofTFinput2 - highofTFinput2) * 0.5 + highofTFinput2
+
+//Workaround to disable color management on the standard tab Style for plots
+//Custom inputs for colors should be used instead
+transp_func() =>
+    transp_0 = 0
+
+//***End of local functions definiton***
+
+//***Start of getting data  
+start_time = request.security(tickerid_func(), "D", time_close[1],barmerge.gaps_off,barmerge.lookahead_on)
+open__ = request.security(tickerid_func(), "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+openWK__ = request.security(tickerid_func(), "W", open, barmerge.gaps_off, barmerge.lookahead_on)
+
+//start_time1 = request.security(tickerid_func(), "W", time_close[1],barmerge.gaps_off,barmerge.lookahead_on)
+start_day_open = request.security(syminfo.tickerid, 'D', open, lookahead = barmerge.lookahead_on)
+start_time1 = request.security(syminfo.tickerid, 'W', open, lookahead = barmerge.lookahead_on)
+
+//wk_time = request.security(syminfo.tickerid, "W", time[1], lookahead = barmerge.lookahead_on)
+perc50_1_time = request.security(syminfo.tickerid, fiftypercentTF, time[1] , lookahead = barmerge.lookahead_on)
+perc50_2_time = request.security(syminfo.tickerid, fiftypercentTF2, time[1] , lookahead = barmerge.lookahead_on)
+
+
+adr1_high = adr_func(adr_1,true)
+adr1_low = adr_func(adr_1,false)
+adr2_high = adr_func(adr_2,true)
+adr2_low = adr_func(adr_2,false)
+
+
+//***End of getting data
+
+float _adr1_high = na
+float _adr1_low = na
+float _adr2_high = na
+float _adr2_low = na
+
+float _open = na
+
+
+
+//*********************
+//***Start of plotting*
+
+//Decide if we can show the chart:
+//Daily levels should be visible on intraday chart only
+
+//Decide if we can show the chart:
+//Daily levels should be visible on intraday chart only
+
+var show_chart = false
+
+if timeframe.isintraday
+    show_chart := true
+
+
+
+
+////Plot today only
+
+f_returnTFminutes(_tfs) =>
+    int tfMin = switch _tfs
+        "240"   => 240
+        "130"   => 130
+        "90"    => 90
+        "60"    => 60
+        "65"    => 65
+        "10"    => 10
+        "9"     => 9
+        "18"    => 18
+        "36"    => 36
+        "6"     => 6
+        "5"     => 5
+        "4"     => 4
+        "3"     => 3
+        "2"     => 2
+        "1"     => 1
+        "45"    => 45
+        "30"    => 30
+        "26"    => 26
+        "15"    => 15
+        "13"    => 13
+        "1D"    => 1440
+        "D"     => 1440
+        "1W"    => 10080
+        "W"     => 10080
+        "1M"    => 43830
+        "M"     => 43830
+        "3M"    => 43830
+        "12M"   => 43830
+        => 1
+    currentTFmins = timeframe.period == "65" ? 65 
+      : timeframe.period == "60" ? 60 
+      : timeframe.period == "90" ? 90
+      : timeframe.period == "240" ? 240
+      : timeframe.period == "130" ? 130
+      : timeframe.period == "26" ? 26
+      : timeframe.period == "65" ? 65
+      : timeframe.period == "18" ? 18
+      : timeframe.period == "5" ? 5
+      : timeframe.period == "36" ? 36
+      : timeframe.period == "9" ? 9
+      : timeframe.period == "4" ? 4
+      : timeframe.period == "3" ? 3
+      : timeframe.period ==  "2" ? 2
+      : timeframe.period == "1" ? 1
+      : timeframe.period == "45" ? 45
+      : timeframe.period == "30" ? 30 
+      : timeframe.period == "16" ? 16 
+      : timeframe.period == "13" ? 13 
+      : timeframe.period == "15" ? 15 
+      : timeframe.isdaily ? 1440 
+      : timeframe.isweekly ? 10080 
+      : timeframe.ismonthly ? 43830 
+      : na
+    isTFBelowOrEqual = tfMin >= currentTFmins
+    isTFBelowOrEqual
+
+
+currTF = timeframe.period
+float posX = time + (24 * 60 * 60 * 1000)
+
+if currTF == "60" or currTF == "90" 
+    posX := time + (24 * 60 * 60 * 2000)
+if currTF == "240"
+    posX := time + (24 * 60 * 60 * 10000)
+if currTF == "720" or currTF == "D"
+    posX := time + (24 * 60 * 60 * 20000)
+if currTF == "W"
+    posX := time + (24 * 60 * 60 * 100000)
+if currTF == "M"
+    posX := time + (24 * 60 * 60 * 400000)
+
+
+
+var perc50_1 = line.new(na,na,na,na)
+if fitypercentOnorOFF and f_returnTFminutes(fiftypercentTF)
+    perc50_1 := line.new(perc50_1_time, fiftypercentLevel, time, fiftypercentLevel, xloc = xloc.bar_time, extend=extend.right, color=fitypercentlineColor, width=1)
+    line.delete(perc50_1[1])
+if labels_enabled == true and f_returnTFminutes(fiftypercentTF)
+    perc50_1_lbl = label.new(math.round(posX), fiftypercentLevel,
+     fiftypercentTF + ":50% (" + str.tostring(math.round(fiftypercentLevel,2)) + ")",
+     color = fitypercentlineColor,
+     textcolor = fitypercentlineColor,
+     textalign = text.align_center,
+     style = label.style_none,
+     size = size.normal,
+     xloc = xloc.bar_time)
+    label.delete(perc50_1_lbl[1])
+    //draw_line(start_time1, fiftypercentLevel, time, fiftypercentLevel, xloc.bar_time, extend.right, fitypercentlineColor, line.style_solid, 2)  
+
+var perc50_2 = line.new(na,na,na,na)
+if fitypercentOnorOFF2 and f_returnTFminutes(fiftypercentTF2)
+    perc50_2 := line.new(perc50_2_time, fiftypercentLevel2, time, fiftypercentLevel2, xloc = xloc.bar_time, extend=extend.right, color=fitypercentlineColor2, width=1)
+    line.delete(perc50_2[1])
+if labels_enabled == true and f_returnTFminutes(fiftypercentTF2)
+    perc50_2_lbl = label.new(math.round(posX), fiftypercentLevel2,
+     fiftypercentTF2 + ":50% (" + str.tostring(math.round(fiftypercentLevel2,2)) + ")",
+     color = fitypercentlineColor2,
+     textcolor = fitypercentlineColor2,
+     textalign = text.align_center,
+     style = label.style_none,
+     size = size.normal,
+     xloc = xloc.bar_time)
+    label.delete(perc50_2_lbl[1])
+    
+//     draw_line(start_time1, fiftypercentLevel2, time, fiftypercentLevel2, xloc.bar_time, extend.right, fitypercentlineColor2, line.style_solid, 2)  
+
+
+//////////////Weekly Open Line Code///////////////////////////////////////////
+var wo_l = line.new(na,na,na,na)
+if openofWK and f_returnTFminutes("W")
+    // wo_l := line.new(bar_index, wk_time, bar_index, time, xloc = xloc.bar_time, extend=extend.right, color=color_openwk, width=1)
+    // line.delete(wo_l[1])
+    var line1 = line.new(na, na, na, na, style=line.style_solid, color=color_openwk, extend=extend.right)
+    if ta.change(weekofyear)
+        line.set_xy1(line1, bar_index, open)
+        line.set_xy2(line1, bar_index + 1, open)
+if labels_enabled == true and f_returnTFminutes("W")
+    wo_lbl = label.new(math.round(posX), start_time1,
+    	  "Open WK (" + str.tostring(math.round(start_time1,2)) + ")",
+    	  color = color_openwk,
+    	  textcolor = color_openwk,
+    	  textalign = text.align_center,
+    	  style = label.style_none,
+    	  size = size.normal,
+    	  xloc = xloc.bar_time)
+    label.delete (wo_lbl[1])
+//     draw_line(start_time1, openWK__, time, openWK__, xloc.bar_time, extend.right, color_openwk, line.style_solid, 1) 
+///////////////////////////////////////////////////
+
+///////////Daily Open
+
+    
+    day_line = line.new(x1=bar_index-1, y1=start_day_open, x2=bar_index, y2=start_day_open, xloc=xloc.bar_index, style=line.style_solid,extend=extend.right, color=color_open)
+    line.delete(day_line[1])  // remove the previous line when new bar appears
+    // if ta.change(dayofweek)
+    //     line.set_xy1(day_line, bar_index, open)
+    //     line.set_xy2(day_line, bar_index + 1, open)
+    //draw_line(start_time, open__, time, open__, xloc.bar_time, extend.none, color_open, line.style_solid, 2)  
+    if labels_enabled == true and f_returnTFminutes("D")
+        d_lbl = label.new(math.round(posX), bar_index, 
+             "Open (" + str.tostring(math.round(open__,2)) + ")",
+             color = color_openwk,
+             textcolor = color_openwk,
+             textalign = text.align_center,
+             style = label.style_none,
+             size = size.normal,
+             xloc = xloc.bar_time)
+        label.delete (d_lbl[1])
+
+
+
+//////////////////////////////
+
+
+if show_chart 
+    draw_line1 = line.new(start_time, adr1_high, time, adr1_high, xloc.bar_time, extend.none, color_ADR1_high, line.style_solid, 1)
+    line.delete(draw_line1[1])
+   
+    draw_line2 = line.new(start_time, adr2_high, time, adr2_high, xloc.bar_time, extend.none, color_ADR2_high, line.style_solid, 1)
+    line.delete(draw_line2[1])
+    
+    draw_line3 = line.new(start_time, adr1_low, time, adr1_low, xloc.bar_time, extend.none, color_ADR1_low, line.style_solid, 1)
+    line.delete(draw_line3[1])
+    
+    draw_line4 = line.new(start_time, adr2_low, time, adr2_low, xloc.bar_time, extend.none, color_ADR2_low, line.style_solid, 1)  
+    line.delete(draw_line4[1]) 
+    
+    linefill.new(draw_line1, draw_line2, color.new(adrUppercolorfill,80))
+
+    linefill.new(draw_line3, draw_line4, color.new(adrlowercolorfill, 80))
+
+
+
+
+
+//***End of plotting***
+//*********************
+
+//*********************
+
+
+
+//*********ALERTS**************
+
+[currPrice, currHigh, currLow] = request.security(syminfo.tickerid, timeframe.period, [close, high, low],  lookahead = barmerge.lookahead_on)
+
+
+fiftypercentlevelCrossup = ta.crossover(currPrice, fiftypercentLevel)
+
+fiftypercentlevelCrossup2 = ta.crossover(currPrice, fiftypercentLevel2)
+
+if fiftypercentlevelCrossup
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross over 50% of prev candle detected!", alert.freq_once_per_bar)
+
+
+if fiftypercentlevelCrossup2
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross over 50% of prev candle detected!", alert.freq_once_per_bar)
+
+fiftypercentlevelCrossDown = ta.crossunder(currPrice, fiftypercentLevel)
+
+fiftypercentlevelCrossDown2 = ta.crossunder(currPrice, fiftypercentLevel2)
+
+if fiftypercentlevelCrossDown
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross under 50% of prev candle detected!", alert.freq_once_per_bar)
+
+
+if fiftypercentlevelCrossDown2
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross under 50% of prev candle detected!", alert.freq_once_per_bar)
+
+adrhigh1cross = ta.crossover(currPrice, adr1_high)
+
+adrhigh2cross =  ta.crossover(currPrice, adr2_high)
+
+if adrhigh1cross
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross over upper adr 1 detected!", alert.freq_once_per_bar)
+if adrhigh2cross
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross over upper adr 2 detected!", alert.freq_once_per_bar)
+
+adrlow1cross = ta.crossunder(currPrice, adr1_low)
+
+adrlow2cross = ta.crossunder(currPrice, adr2_low)
+
+if adrlow1cross
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross under lower adr 1 detected!", alert.freq_once_per_bar)
+if adrlow2cross
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross under lower adr 2 detected!", alert.freq_once_per_bar) 
+
+
+//***Start of Labels***
+
+label_ADR1_high = ''
+label_ADR2_high = ''
+
+label_ADR1_low = ''
+label_ADR2_low = ''
+
+label_open = ''
+label_openWK = ''
+
+label_fitypercentline = ''
+label_fitypercentline2 = ''
+
+
+
+
+if labels_enabled == true
+    label_ADR1_high := str.tostring(math.round_to_mintick(adr1_high))
+    label_ADR2_high := str.tostring(math.round_to_mintick(adr2_high))
+    
+    label_ADR1_low  := str.tostring(math.round_to_mintick(adr1_low))
+    label_ADR2_low  := str.tostring(math.round_to_mintick(adr2_low))
+  
+    label_open      := str.tostring(math.round_to_mintick(open__))
+    //label_fitypercentline :=  str.tostring(math.round_to_mintick(fiftypercentLevel))
+    //label_fitypercentline2 :=  str.tostring(math.round_to_mintick(fiftypercentLevel2))
+    //label_openWK      := str.tostring(math.round_to_mintick(openWK__))
+
+string_ADR1_high = ' (' + label_ADR1_high + ')'
+string_ADR2_high = ' (' + label_ADR2_high + ')'
+
+string_ADR1_low = ' (' + label_ADR1_low + ')'
+string_ADR2_low = ' (' + label_ADR2_low + ')'
+
+string_open_low = ' (' + label_open + ')'
+string_open_wk = ' (' + label_openWK + ')'
+
+string_fiftypercent = ' (' + label_fitypercentline + ')'
+string_fiftypercent2 = ' (' + label_fitypercentline2 + ')'
+
+
+
+
+//Labels
+if show_chart and labels_enabled == true
+    draw_label(bar_index + 1, adr1_high, text_ADR1_high + string_ADR1_high, xloc.bar_index, yloc.price, color.new(color.white, 100), label.style_label_left, color.new(color_ADR1_high,transp_func()), size.normal, text.align_left, '') 
+    draw_label(bar_index + 1, adr2_high, text_ADR2_high + string_ADR2_high, xloc.bar_index, yloc.price, color.new(color.white, 100), label.style_label_left, color.new(color_ADR2_high,transp_func()), size.normal, text.align_left, '')
+  
+    draw_label(bar_index + 1, adr1_low,  text_ADR1_low + string_ADR1_low, xloc.bar_index, yloc.price, color.new(color.white, 100), label.style_label_left, color.new(color_ADR1_low,transp_func()), size.normal, text.align_left, '')   
+    draw_label(bar_index + 1, adr2_low,  text_ADR2_low + string_ADR2_low, xloc.bar_index, yloc.price, color.new(color.white, 100), label.style_label_left, color.new(color_ADR2_low,transp_func()), size.normal, text.align_left, '')  
+
+draw_label(bar_index + 1, open__,  text_open + string_open_low, xloc.bar_index, yloc.price, color.new(color.white, 100), label.style_label_left, color.new(color_open,transp_func()), size.normal, text.align_left, '') 
