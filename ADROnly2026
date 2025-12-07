@@ -1,0 +1,177 @@
+
+//──────────────────────────────
+// ADR CONFIG & COLORS
+//──────────────────────────────
+
+// Label texts
+text_ADR1_high = 'ADR1 Upper'
+text_ADR2_high = 'ADR2 Upper'
+text_ADR1_low  = 'ADR1 Lower'
+text_ADR2_low  = 'ADR2 Lower'
+text_open      = 'Open'
+
+// Base colors (same as your original)
+var lime        = #000000 // ADR2 Low
+var chartreuse  = #000000 // ADR1 Low
+var orange      = #000000 // ADR1 High
+var redorange   = #000000 // ADR2 High
+var gray        = #808080 // Open
+
+// Inputs
+var labels_enabled = input.bool(defval = true, title = 'Show labels')
+
+var adr_1 = input.int(title = 'ADR 1', defval = 10, minval = 1, group = 'ADR Periods', inline="ADR1")
+var adr_2 = input.int(title = 'ADR 2', defval = 5,  minval = 1, group = 'ADR Periods', inline="ADR1")
+
+var color_ADR1_high = input.color(defval = color.new(orange,    0), title = text_ADR1_high, group = 'Colors', inline="ADR2")
+var color_ADR2_high = input.color(defval = color.new(redorange, 0), title = text_ADR2_high, group = 'Colors', inline="ADR2")
+
+var color_ADR1_low  = input.color(defval = color.new(chartreuse, 0), title = text_ADR1_low,  group = 'Colors', inline="ADR2")
+var color_ADR2_low  = input.color(defval = color.new(lime,       0), title = text_ADR2_low,  group = 'Colors', inline="ADR2")
+
+var color_open      = input.color(defval = color.new(gray, 0), title = text_open, group = 'Colors', inline="ADR1")
+
+adrUppercolorfill = input.color(color.red,   "ADR Upper", tooltip = "Color of zone between Upper Adr 1 and 2", inline="ADR3")
+adrlowercolorfill = input.color(color.green, "ADR lower", tooltip = "Color of zone between Lower Adr 1 and 2", inline="ADR3")
+
+//──────────────────────────────
+// HELPER FUNCTIONS (UNCHANGED)
+//──────────────────────────────
+
+draw_label(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
+    dlabel = label.new(x = _x, y = _y, text = _text, xloc = _xloc, yloc = _yloc, color = _color, style = _style, textcolor = _textcolor, size = _size, textalign = _textalign, tooltip = _tooltip)
+    label.delete(dlabel[1])
+
+// If security is futures - replace the ticker with continuous contract
+tickerid_func() =>
+    tickerid = syminfo.tickerid
+    if syminfo.type == 'futures'
+        tickerid := syminfo.root + '1!'
+    tickerid
+
+// Function to calculate ADR levels (EXACTLY as in your script)
+// lengthInput - ADR period
+// hi_low - true-->High, else-->Low 
+adr_func(lengthInput, hi_low) =>
+    float result = 0.0
+    float adr = 0.0
+    open_     = request.security(tickerid_func(), "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+    adr_High  = request.security(tickerid_func(), "D", ta.sma(high[1], lengthInput), barmerge.gaps_off, barmerge.lookahead_on)
+    adr_Low   = request.security(tickerid_func(), "D", ta.sma(low[1],  lengthInput), barmerge.gaps_off, barmerge.lookahead_on)
+    adr := (adr_High - adr_Low)
+    if hi_low      // High
+        result := adr / 2 + open_
+    else           // Low
+        result := open_ - adr / 2
+    result
+
+// Workaround to disable color management on standard Style tab
+transp_func() =>
+    transp_0 = 0
+
+//──────────────────────────────
+// DATA FOR ADR LEVELS
+//──────────────────────────────
+
+start_time = request.security(tickerid_func(), "D", time_close[1], barmerge.gaps_off, barmerge.lookahead_on)
+open__     = request.security(tickerid_func(), "D", open,          barmerge.gaps_off, barmerge.lookahead_on)
+
+adr1_high = adr_func(adr_1, true)
+adr1_low  = adr_func(adr_1, false)
+adr2_high = adr_func(adr_2, true)
+adr2_low  = adr_func(adr_2, false)
+
+// Show only on intraday charts (same logic)
+var show_chart = false
+if timeframe.isintraday
+    show_chart := true
+
+//──────────────────────────────
+// DRAW ADR LINES & ZONES
+//──────────────────────────────
+if show_chart
+    draw_line1 = line.new(start_time, adr1_high, time, adr1_high, xloc.bar_time, extend.none, color_ADR1_high, line.style_solid, 1)
+    line.delete(draw_line1[1])
+
+    draw_line2 = line.new(start_time, adr2_high, time, adr2_high, xloc.bar_time, extend.none, color_ADR2_high, line.style_solid, 1)
+    line.delete(draw_line2[1])
+
+    draw_line3 = line.new(start_time, adr1_low,  time, adr1_low,  xloc.bar_time, extend.none, color_ADR1_low,  line.style_solid, 1)
+    line.delete(draw_line3[1])
+
+    draw_line4 = line.new(start_time, adr2_low,  time, adr2_low,  xloc.bar_time, extend.none, color_ADR2_low,  line.style_solid, 1)
+    line.delete(draw_line4[1])
+
+    linefill.new(draw_line1, draw_line2, color.new(adrUppercolorfill, 80))
+    linefill.new(draw_line3, draw_line4, color.new(adrlowercolorfill, 80))
+
+//──────────────────────────────
+// ADR ALERTS (UNCHANGED LOGIC)
+//──────────────────────────────
+
+[currPrice, currHigh, currLow] = request.security(syminfo.tickerid, timeframe.period, [close, high, low], lookahead = barmerge.lookahead_on)
+
+adrhigh1cross = ta.crossover(currPrice, adr1_high)
+adrhigh2cross = ta.crossover(currPrice, adr2_high)
+adrlow1cross  = ta.crossunder(currPrice, adr1_low)
+adrlow2cross  = ta.crossunder(currPrice, adr2_low)
+
+if adrhigh1cross
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross over upper adr 1 detected!", alert.freq_once_per_bar)
+if adrhigh2cross
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross over upper adr 2 detected!", alert.freq_once_per_bar)
+if adrlow1cross
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross under lower adr 1 detected!", alert.freq_once_per_bar)
+if adrlow2cross
+    alert(syminfo.ticker + "[" + timeframe.period + "] : Cross under lower adr 2 detected!", alert.freq_once_per_bar)
+
+//──────────────────────────────
+// LABELS (ADR ONLY, SAME STYLE)
+//──────────────────────────────
+
+label_ADR1_high = ''
+label_ADR2_high = ''
+label_ADR1_low  = ''
+label_ADR2_low  = ''
+label_open      = ''
+
+if labels_enabled
+    label_ADR1_high := str.tostring(math.round_to_mintick(adr1_high))
+    label_ADR2_high := str.tostring(math.round_to_mintick(adr2_high))
+    label_ADR1_low  := str.tostring(math.round_to_mintick(adr1_low))
+    label_ADR2_low  := str.tostring(math.round_to_mintick(adr2_low))
+    label_open      := str.tostring(math.round_to_mintick(open__))
+
+string_ADR1_high = ' (' + label_ADR1_high + ')'
+string_ADR2_high = ' (' + label_ADR2_high + ')'
+string_ADR1_low  = ' (' + label_ADR1_low  + ')'
+string_ADR2_low  = ' (' + label_ADR2_low  + ')'
+string_open_low  = ' (' + label_open      + ')'
+
+// ADR labels on right side
+if show_chart and labels_enabled
+    draw_label(bar_index + 1, adr1_high, text_ADR1_high + string_ADR1_high,
+       xloc.bar_index, yloc.price, color.new(color.white, 100),
+       label.style_label_left, color.new(color_ADR1_high, transp_func()),
+       size.normal, text.align_left, "")
+
+    draw_label(bar_index + 1, adr2_high, text_ADR2_high + string_ADR2_high,
+       xloc.bar_index, yloc.price, color.new(color.white, 100),
+       label.style_label_left, color.new(color_ADR2_high, transp_func()),
+       size.normal, text.align_left, "")
+
+    draw_label(bar_index + 1, adr1_low, text_ADR1_low + string_ADR1_low,
+       xloc.bar_index, yloc.price, color.new(color.white, 100),
+       label.style_label_left, color.new(color_ADR1_low, transp_func()),
+       size.normal, text.align_left, "")
+
+    draw_label(bar_index + 1, adr2_low, text_ADR2_low + string_ADR2_low,
+       xloc.bar_index, yloc.price, color.new(color.white, 100),
+       label.style_label_left, color.new(color_ADR2_low, transp_func()),
+       size.normal, text.align_left, "")
+
+// Optional: label for daily open (same style as original)
+draw_label(bar_index + 1, open__, text_open + string_open_low,
+   xloc.bar_index, yloc.price, color.new(color.white, 100),
+   label.style_label_left, color.new(color_open, transp_func()),
+   size.normal, text.align_left, "")
