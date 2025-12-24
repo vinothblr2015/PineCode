@@ -1,0 +1,257 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+// © vinothblr2015
+//@version=6
+indicator("STR Strength + ATM Meeting Point", overlay=false, max_lines_count=500, max_labels_count=500)
+
+// ───────────────── View Selector ─────────────────
+group_view = "View Selection"
+view = input.string("STR", "View Mode", options=["STR","Meeting Point"], group=group_view)
+isSTR = view == "STR"
+isMEETING = view == "Meeting Point"
+
+// ───────────────── Main inputs (COMMON) ─────────────────
+group_main = "Main Settings"
+expiry_prefix = input.string("NIFTY251230", "Expiry Symbol Prefix", group=group_main)
+base_strike   = input.int(26150, "Base Strike", group=group_main)
+strike_step   = input.int(50, "Strike Step", group=group_main)
+range_strikes = input.int(2, "No. of Strikes (+/-)", group=group_main)
+opt_tf        = input.timeframe("3", "STR Timeframe", group=group_main)
+txt_size      = input.string("tiny", "VWAP Table Text Size", group=group_main,
+     options=["tiny","small","normal","large"])
+meet_tf = input.timeframe("5", "Meeting Timeframe", group=group_main)
+// ───────────────── Common params ─────────────────
+group_common = "Common Parameters"
+volatility_threshold = input.float(5.0, "Volatility Threshold (%)", step=0.1, group=group_common)
+smoothing      = input.bool(true, "Apply Strength Smoothing?", group=group_common)
+smooth_len     = input.int(3, "Strength Smoothing Length", minval=1, group=group_common)
+
+// ───────────────── Symbols ─────────────────
+call_symbol = expiry_prefix + "C" + str.tostring(base_strike)
+put_symbol  = expiry_prefix + "P" + str.tostring(base_strike)
+
+// ───────────────── Data ─────────────────
+[ce_open, ce_high, ce_low, ce_close, ce_vol] =    request.security(call_symbol, opt_tf, [open, high, low, close, volume], ignore_invalid_symbol=true)
+
+[pe_open, pe_high, pe_low, pe_close, pe_vol] =    request.security(put_symbol, opt_tf, [open, high, low, close, volume], ignore_invalid_symbol=true)
+
+
+
+// ───────────────── Straddle & Volatility ─────────────────
+straddle_price  = na(ce_close) or na(pe_close) ? na : ce_close + pe_close
+straddle_change = ta.change(straddle_price) / straddle_price[1] * 100
+highlight_vol   = isSTR and not na(straddle_change) and math.abs(straddle_change) > volatility_threshold
+
+// ───────────────── Daily VWAP Reset ─────────────────
+newDay = ta.change(time("D")) != 0
+var float ce_pv = na
+var float ce_vc = na
+var float pe_pv = na
+var float pe_vc = na
+
+if newDay
+    ce_pv := na
+    ce_vc := na
+    pe_pv := na
+    pe_vc := na
+
+ce_pv := na(ce_pv) ? ce_close * ce_vol : ce_pv + ce_close * ce_vol
+ce_vc := na(ce_vc) ? ce_vol : ce_vc + ce_vol
+pe_pv := na(pe_pv) ? pe_close * pe_vol : pe_pv + pe_close * pe_vol
+pe_vc := na(pe_vc) ? pe_vol : pe_vc + pe_vol
+
+ce_vwap = ce_vc > 0 ? ce_pv / ce_vc : na
+pe_vwap = pe_vc > 0 ? pe_pv / pe_vc : na
+
+// ───────────────── Strength ─────────────────
+ce_raw = ce_close - ce_vwap
+pe_raw = pe_close - pe_vwap
+
+ce_str = smoothing ? ta.sma(ce_raw, smooth_len) : ce_raw
+pe_str = smoothing ? ta.sma(pe_raw, smooth_len) : pe_raw
+
+// ───────────────── Plots ─────────────────
+hline(0, "Zero", color=color.black, linestyle=hline.style_solid, linewidth=2)
+
+plot(isSTR ? ce_str : na, color=color.lime, linewidth=3, title="CE Strength")
+plot(isSTR ? pe_str : na, color=color.red,  linewidth=3, title="PE Strength")
+
+bgcolor(highlight_vol ? color.new(color.yellow, 80) : na)
+
+if highlight_vol
+    label.new(bar_index, 0,
+        "V: " + str.tostring(straddle_change, "#.##") + "%",
+        style=label.style_circle,
+        color=color.new(color.white, 100),
+        textcolor=color.black)
+
+// ───────────────── Helpers ─────────────────
+get_vwap(sym) =>
+    request.security(sym, opt_tf, [close, ta.vwap(hlc3)], ignore_invalid_symbol=true)
+
+get_dots(v) =>
+    v >= 20 ? "🟢🟢🟢" :    v >= 10 ? "🟢🟢" :    v > 0   ? "🟢" :    v <= -20 ? "🔴🔴🔴" :    v <= -10 ? "🔴🔴" :    v < 0   ? "🔴" : "•"
+
+// ───────────────── VWAP + Strength Table ─────────────────
+if isSTR
+    cols = 6
+    rows = 2 * range_strikes + 1
+    var table t = na
+
+    if barstate.isfirst
+        t := table.new(position.top_right, cols, rows + 4, border_width=1, border_color=color.gray)
+
+    if barstate.islast
+        table.cell(t, 0, 0, "Strike", bgcolor=color.white, text_color=color.black, text_size=txt_size)
+        table.cell(t, 1, 0, "CE VWAP", bgcolor=color.white, text_color=color.black, text_size=txt_size)
+        table.cell(t, 2, 0, "CE Tr", bgcolor=color.white, text_color=color.black, text_size=txt_size)
+        table.cell(t, 3, 0, "PE VWAP", bgcolor=color.white, text_color=color.black, text_size=txt_size)
+        table.cell(t, 4, 0, "PE Tr", bgcolor=color.white, text_color=color.black, text_size=txt_size)
+        table.cell(t, 5, 0, "Meter", bgcolor=color.white, text_color=color.black, text_size=txt_size)
+
+    float callP = 0
+    float putP  = 0
+
+    for i = -range_strikes to range_strikes
+        strike = base_strike + i * strike_step
+        ce = expiry_prefix + "C" + str.tostring(strike)
+        pe = expiry_prefix + "P" + str.tostring(strike)
+
+        [c1, v1] = get_vwap(ce)
+        [c2, v2] = get_vwap(pe)
+
+        ceS = c1 - v1
+        peS = c2 - v2
+        meter = ceS - peS
+
+        callP += nz(ceS)
+        putP  += nz(peS)
+
+        r = i + range_strikes + 1
+        table.cell(t, 0, r, str.tostring(strike), text_color=color.black, text_size=txt_size)
+        table.cell(t, 1, r, str.tostring(v1, "#.##"), text_color=color.black, text_size=txt_size)
+        table.cell(t, 2, r, get_dots(ceS), text_color=color.black, text_size=txt_size)
+        table.cell(t, 3, r, str.tostring(v2, "#.##"), text_color=color.black, text_size=txt_size)
+        table.cell(t, 4, r, get_dots(peS), text_color=color.black, text_size=txt_size)
+        table.cell(t, 5, r, str.tostring(meter, "#.##"), text_color=color.black, text_size=txt_size)
+
+    net = callP - putP
+    bg  = net >= 0 ? color.green : color.red
+
+    table.merge_cells(t, 0, rows + 3, cols - 1, rows + 3)
+    table.cell(t, 0, rows + 3, "Net Bias: " + str.tostring(net, "#.##"), bgcolor=bg, text_color=color.white, text_size=txt_size)
+//=============================Meeting=========================================================================================================
+
+ce_sym = expiry_prefix + "C" + str.tostring(base_strike)
+pe_sym = expiry_prefix + "P" + str.tostring(base_strike)
+// ── Data
+[ceO, ceH, ceL, ceC] = request.security(ce_sym, meet_tf, [open,high,low,close], ignore_invalid_symbol=true)
+[peO, peH, peL, peC] = request.security(pe_sym, meet_tf, [open,high,low,close], ignore_invalid_symbol=true)
+
+// ── VWAP
+ceVW = request.security(ce_sym, meet_tf, ta.vwap(hlc3), ignore_invalid_symbol=true)
+peVW = request.security(pe_sym, meet_tf, ta.vwap(hlc3), ignore_invalid_symbol=true)
+
+// ── CE and PE Candles
+plotcandle(isMEETING?ceO:na, isMEETING?ceH:na, isMEETING?ceL:na, isMEETING?ceC:na,
+     color=ceC>=ceO?color.green:color.red, title="CE")
+
+plotcandle(isMEETING?peO:na, isMEETING?peH:na, isMEETING?peL:na, isMEETING?peC:na,
+     color=peC>=peO?color.blue:color.fuchsia, title="PE")
+
+// ── Plot VWAPs
+plot(isMEETING?ceVW:na, color=color.green, linewidth=2, title="CE VWAP")
+plot(isMEETING?peVW:na, color=color.blue,  linewidth=2, title="PE VWAP")
+
+// ── Previous Day Levels
+ce_pdh = request.security(ce_sym, "D", high[1],  ignore_invalid_symbol=true)
+ce_pdl = request.security(ce_sym, "D", low[1],   ignore_invalid_symbol=true)
+ce_pdc = request.security(ce_sym, "D", close[1], ignore_invalid_symbol=true)
+
+pe_pdh = request.security(pe_sym, "D", high[1],  ignore_invalid_symbol=true)
+pe_pdl = request.security(pe_sym, "D", low[1],   ignore_invalid_symbol=true)
+pe_pdc = request.security(pe_sym, "D", close[1], ignore_invalid_symbol=true)
+
+// // ── Draw PD Levels (auto refreshed)
+// if isMEETING and barstate.islast
+//     x1 = bar_index - 100
+//     x2 = bar_index
+
+//     // CE PD Levels
+//     line.new(x1, ce_pdh, x2, ce_pdh, color=color.red,   width=2)
+//     line.new(x1, ce_pdl, x2, ce_pdl, color=color.green, width=2)
+//     line.new(x1, ce_pdc, x2, ce_pdc, color=color.gray,  width=2)
+
+//     // PE PD Levels
+//     line.new(x1, pe_pdh, x2, pe_pdh, color=color.fuchsia, width=2)
+//     line.new(x1, pe_pdl, x2, pe_pdl, color=color.blue,    width=2)
+//     line.new(x1, pe_pdc, x2, pe_pdc, color=color.gray,    width=2)
+    
+
+// ───────────────── Previous Day Levels (Meeting View) ─────────────────
+
+// ── Persistent lines
+var line ce_h_line = na
+var line ce_l_line = na
+var line ce_c_line = na
+var line pe_h_line = na
+var line pe_l_line = na
+var line pe_c_line = na
+
+// ── Persistent labels
+var label ce_h_lbl = na
+var label ce_l_lbl = na
+var label ce_c_lbl = na
+var label pe_h_lbl = na
+var label pe_l_lbl = na
+var label pe_c_lbl = na
+
+if isMEETING and barstate.islast
+    // ── Cleanup old lines
+    for l in array.from(ce_h_line, ce_l_line, ce_c_line, pe_h_line, pe_l_line, pe_c_line)
+        if not na(l)
+            line.delete(l)
+
+    // ── Cleanup old labels
+    for lb in array.from(ce_h_lbl, ce_l_lbl, ce_c_lbl, pe_h_lbl, pe_l_lbl, pe_c_lbl)
+        if not na(lb)
+            label.delete(lb)
+
+    // ── Line span
+    x1 = bar_index - 100
+    x2 = bar_index
+
+    // ── CE lines
+    ce_h_line := line.new(x1, ce_pdh, x2, ce_pdh, xloc=xloc.bar_index, color=color.red,   width=2)
+    ce_l_line := line.new(x1, ce_pdl, x2, ce_pdl, xloc=xloc.bar_index, color=color.green, width=2)
+    ce_c_line := line.new(x1, ce_pdc, x2, ce_pdc, xloc=xloc.bar_index, color=color.black, width=2)
+
+    // ── PE lines
+    pe_h_line := line.new(x1, pe_pdh, x2, pe_pdh, xloc=xloc.bar_index, color=color.fuchsia, width=2)
+    pe_l_line := line.new(x1, pe_pdl, x2, pe_pdl, xloc=xloc.bar_index, color=color.blue,    width=2)
+    pe_c_line := line.new(x1, pe_pdc, x2, pe_pdc, xloc=xloc.bar_index, color=color.gray,    width=2)
+
+    // ── CE labels
+    ce_h_lbl := label.new(x2, ce_pdh, "CE PDH " + str.tostring(ce_pdh, "#.00"),
+        xloc=xloc.bar_index, yloc=yloc.price,
+        style=label.style_text_outline, color=color.red, textcolor=color.white)
+
+    ce_l_lbl := label.new(x2, ce_pdl, "CE PDL " + str.tostring(ce_pdl, "#.00"),
+        xloc=xloc.bar_index, yloc=yloc.price,
+        style=label.style_text_outline, color=color.green, textcolor=color.white)
+
+    ce_c_lbl := label.new(x2, ce_pdc, "CE PDC " + str.tostring(ce_pdc, "#.00"),
+        xloc=xloc.bar_index, yloc=yloc.price,
+        style=label.style_text_outline, color=color.gray, textcolor=color.white)
+
+    // ── PE labels
+    pe_h_lbl := label.new(x2, pe_pdh, "PE PDH " + str.tostring(pe_pdh, "#.00"),
+        xloc=xloc.bar_index, yloc=yloc.price,
+        style=label.style_text_outline, color=color.fuchsia, textcolor=color.white)
+
+    pe_l_lbl := label.new(x2, pe_pdl, "PE PDL " + str.tostring(pe_pdl, "#.00"),
+        xloc=xloc.bar_index, yloc=yloc.price,
+        style=label.style_text_outline, color=color.aqua, textcolor=color.white)
+
+    pe_c_lbl := label.new(x2, pe_pdc, "PE PDC " + str.tostring(pe_pdc, "#.00"),
+        xloc=xloc.bar_index, yloc=yloc.price,
+        style=label.style_text_outline, color=color.gray, textcolor=color.white)
