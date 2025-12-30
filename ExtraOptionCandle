@@ -1,0 +1,63 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © vinothblr2015
+
+//@version=6
+// © vinothblr2015
+//@version=6
+indicator("Extra Option Candle Overlay", overlay=true, max_lines_count=500)
+
+//──────────────── INPUTS ────────────────
+group_root = "Spot & Expiry"
+spot_root  = input.string("NIFTY", "Spot Symbol", options=["NIFTY","BANKNIFTY","FINNIFTY","MIDCPNIFTY","BSX"], group=group_root)
+atm_strike = input.int(26200, "ATM Strike", step=50, group=group_root)
+exp_day    = input.int(30, "Expiry Day", group=group_root)
+exp_mon    = input.int(12, "Expiry Month", group=group_root)
+exp_year   = input.int(25, "Year (YY)", group=group_root)
+tf         = input.timeframe("5", "Option TF")
+
+show_ce = input.bool(true, "Show CE")
+show_pe = input.bool(false, "Show PE")
+
+//──────────────── HELPERS ────────────────
+pad2(x) =>
+    s = str.tostring(x)
+    str.length(s) == 1 ? "0" + s : s
+
+exchangePrefix(symRoot) =>
+    symRoot == "BSX" ? "BSE:" : "NSE:"
+
+buildOptionSymbol(symRoot, yy, mm, dd, typ, strike) =>
+    exch = exchangePrefix(symRoot)
+    date = pad2(yy) + pad2(mm) + pad2(dd)
+    exch + symRoot + date + typ + str.tostring(strike)
+
+//──────────────── SYMBOLS ────────────────
+ce_sym = buildOptionSymbol(spot_root, exp_year, exp_mon, exp_day, "C", atm_strike)
+pe_sym = buildOptionSymbol(spot_root, exp_year, exp_mon, exp_day, "P", atm_strike)
+
+//──────────────── DATA ────────────────
+[ce_o, ce_h, ce_l, ce_c] = request.security(ce_sym, tf, [open, high, low, close], ignore_invalid_symbol=true)
+[pe_o, pe_h, pe_l, pe_c] = request.security(pe_sym, tf, [open, high, low, close], ignore_invalid_symbol=true)
+
+//──────────────── COLORS ────────────────
+ce_col = ce_c >= ce_o ? color.green : color.red
+pe_col = pe_c >= pe_o ? color.blue  : color.fuchsia
+
+//──────────────── PLOTS ────────────────
+plotcandle(
+     show_ce and not na(ce_c) ? ce_o : na,
+     show_ce and not na(ce_c) ? ce_h : na,
+     show_ce and not na(ce_c) ? ce_l : na,
+     show_ce and not na(ce_c) ? ce_c : na,
+     title="CE Overlay",
+     color=ce_col
+)
+
+plotcandle(
+     show_pe and not na(pe_c) ? pe_o : na,
+     show_pe and not na(pe_c) ? pe_h : na,
+     show_pe and not na(pe_c) ? pe_l : na,
+     show_pe and not na(pe_c) ? pe_c : na,
+     title="PE Overlay",
+     color=pe_col
+)
