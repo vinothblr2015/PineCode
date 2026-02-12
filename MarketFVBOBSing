@@ -1,0 +1,617 @@
+// //@version=6 Extract
+// //indicator("Swing + OB + FVG (All-In-One)", overlay=true, max_boxes_count=100)
+// Base colors
+GRAY                    = #787b86
+ORANGE                  = #f97316
+YELLOW                  = #fbbf24
+
+// Trend colors (defaults)
+BULL_COLOR              = #089981
+BEAR_COLOR              = #f23645
+NEUT_COLOR              = #b8b8b8
+
+// Group Headers
+gBias                   = "Trend Bias Settings"
+gVO                     = "Visual Overlays"
+gSettings               = "Settings"
+
+// Line style enum
+enum lineStyle
+    solid  = "────"
+    dashed = "- - -"
+
+// Trend Bias Settings
+
+// bool    biasUseOB      = input.bool(true,  "Order Block",   group = gBias, inline = "biasFactors1", display = display.none)
+// bool    biasUseFVG     = input.bool(true,  "FVG",           group = gBias, inline = "biasFactors1", display = display.none)
+// bool    biasUseSwing   = input.bool(true,  "Swing H/L",     group = gBias, inline = "biasFactors2", display = display.none)
+
+
+//Settings
+int     swingLength    = input.int(5,                   "Swing Length",         group = gSettings, minval = 1, tooltip = "Used for Swing H/L detection, Order Blocks, and Structure", display = display.none)
+
+// Visual Overlays
+bool    showOB             = input.bool(true,              "Order Blocks",             group = gVO, inline = "ob", tooltip = "Display Order Block zones on chart", display = display.none)
+color   obBullColor        = input.color(BULL_COLOR,        "",                         group = gVO, inline = "ob", active = showOB, display = display.none)
+color   obBearColor        = input.color(BEAR_COLOR,        "",                         group = gVO, inline = "ob", active = showOB, display = display.none)
+int     obLookback         = input.int(6,                   "└ Show Last",              group = gVO, inline = "obOpts", minval = 1, maxval = 20, active = showOB, tooltip = "Number of recent Order Blocks to display", display = display.none)
+int     obExtend           = input.int(20,                  "Extend",                   group = gVO, inline = "obOpts", minval = 1, active = showOB, tooltip = "Bars to extend Order Block zones into the future", display = display.none)
+bool    showOBLabels       = input.bool(true,              "└ Labels",                 group = gVO, active = showOB, tooltip = "Show OB labels inside Order Block zones", display = display.none)
+
+bool    showFVG            = input.bool(true,              "FVGs       ",              group = gVO, inline = "fvg", tooltip = "Display Fair Value Gap zones on chart", display = display.none)
+color   fvgBullColor       = input.color(BULL_COLOR,        "",                         group = gVO, inline = "fvg", active = showFVG, display = display.none)
+color   fvgBearColor       = input.color(BEAR_COLOR,        "",                         group = gVO, inline = "fvg", active = showFVG, display = display.none)
+int     fvgLookback        = input.int(6,                   "└ Show Last",              group = gVO, inline = "fvgOpts", minval = 1, maxval = 20, active = showFVG, tooltip = "Number of recent FVGs to display", display = display.none)
+int     fvgExtend          = input.int(20,                  "Extend",                   group = gVO, inline = "fvgOpts", minval = 1, active = showFVG, tooltip = "Bars to extend FVG zones into the future", display = display.none)
+bool    showFVGLabels      = input.bool(true,              "└ Labels",                 group = gVO, active = showFVG, tooltip = "Show FVG labels inside Fair Value Gap zones", display = display.none)
+
+bool    showSwingLabels    = input.bool(false,              "Swing Labels",             group = gVO, inline = "swingLabels", tooltip = "Display HH/HL/LH/LL labels at swing points", display = display.none)
+color   swingBullColor     = input.color(BULL_COLOR,        "",                         group = gVO, inline = "swingLabels", active = showSwingLabels, display = display.none)
+color   swingBearColor     = input.color(BEAR_COLOR,        "",                         group = gVO, inline = "swingLabels", active = showSwingLabels, display = display.none)
+int     swingLabelLookback = input.int(10,                  "└ Show Last",              group = gVO, minval = 1, maxval = 500, active = showSwingLabels, tooltip = "Number of recent swing labels to display", display = display.none)
+
+bool    showSwingLines     = input.bool(false,              "Swing Lines ",             group = gVO, inline = "swingLines", tooltip = "Draw horizontal lines at recent swing high/low levels", display = display.none)
+color   swingLineLowColor  = input.color(BULL_COLOR,        "",                         group = gVO, inline = "swingLines", active = showSwingLines, display = display.none)
+color   swingLineHighColor = input.color(BEAR_COLOR,        "",                         group = gVO, inline = "swingLines", active = showSwingLines, display = display.none)
+lineStyle swingLineStyle   = input.enum(lineStyle.dashed,   "",                         group = gVO, inline = "swingLines", active = showSwingLines, display = display.none)
+int     swingLinesExtend   = input.int(20,                  "└ Extend",                 group = gVO, minval = 1, active = showSwingLines, tooltip = "Bars to extend swing lines into the future", display = display.none)
+
+
+//#region GLOBALS
+atrLength = 3
+//emaValue  = ta.ema(close, emaLength)
+pivotHigh = ta.pivothigh(high, swingLength, swingLength)
+pivotLow  = ta.pivotlow(low, swingLength, swingLength)
+_green    = close > open or close > close[1]
+_red      = close < open or close < close[1]
+bullFVG   = low[1]  > high[3] and _green[2] and low[1] < high[2] and low[2] < high[3]
+bearFVG   = high[1] < low[3]  and _red[2]   and high[1] > low[2] and high[2] > low[3]
+//#endregion GLOBALS
+
+//#region TYPES
+type ZoneBlock
+    int   dir
+    float top
+    float bottom
+    int   barIdx
+
+type SwingData
+    float prevH
+    float currH
+    float prevL
+    float currL
+
+type PivotData
+    float lastPH
+    int   lastPHBar
+    float lastPL
+    int   lastPLBar
+
+type SwingLineData
+    line  highLine
+    line  lowLine
+    int   lastHBar
+    int   lastLBar
+
+type CandleSearch
+    float price
+    float otherPrice
+    int   barIdx
+    int   barsBack
+
+type ZoneResult
+    int   dir
+    float top
+    float bottom
+    int   barIdx
+    bool  isNew
+
+type SwingLabel
+    int   x
+    float y
+    string txt
+    bool  isHigh
+    color clr
+    color textClr
+
+type TfAlertState
+    int swingSt  = 0
+    int structSt  = 0
+    int obIn     = 0
+    int obDir    = 0
+    int fvgIn    = 0
+    int fvgDir   = 0
+    int ema      = 0
+//#endregion TYPES
+
+//#region FUNCTIONS
+
+getLineStyle(lineStyle ls) =>
+    switch ls
+        lineStyle.solid  => line.style_solid
+        lineStyle.dashed => line.style_dashed
+        //lineStyle.dotted => line.style_dotted
+
+pct(value, base)      => (value / base) * 100
+priceToPct(priceVal)  => (priceVal / close) * 100
+getPipSize()          => syminfo.mintick * (str.contains(syminfo.ticker, "JPY") ? 100 : 10)
+priceToPips(priceVal) => priceVal / getPipSize()
+isBreakAbove(level)   => not na(level) and close > level and close[1] <= level
+isBreakBelow(level)   => not na(level) and close < level and close[1] >= level
+
+// calcTrend() =>
+//     trendDist = close - emaValue
+//     dir       = close > emaValue ? 1 : -1
+//     [dir, trendDist]
+
+calcSwingHL() =>
+    var SwingData swing = SwingData.new()
+    var bool lowBroken = false
+    var bool highBroken = false
+    
+    newSwingH = not na(pivotHigh)
+    newSwingL = not na(pivotLow)
+    
+    if newSwingH
+        swing.prevH := swing.currH
+        swing.currH := pivotHigh
+        highBroken := false  // Reset on new swing
+    if newSwingL
+        swing.prevL := swing.currL
+        swing.currL := pivotLow
+        lowBroken := false   // Reset on new swing
+    
+    // Track breaks
+    if low < swing.currL
+        lowBroken := true
+    if high > swing.currH
+        highBroken := true
+    
+    // Detect reclaims (broke and came back inside)
+    reclaimedLow  = lowBroken and close > swing.currL
+    reclaimedHigh = highBroken and close < swing.currH
+    
+    var int swingBias = 0
+    if newSwingH
+        swingBias := 1
+    if newSwingL
+        swingBias := -1
+    
+    [swing.currH, swing.currL, swingBias, newSwingH, newSwingL, swing.prevH, swing.prevL, reclaimedLow, reclaimedHigh]
+
+// 3. Market Structure - tracks last 3 HH/HL/H/LL sequence
+calcStructure() =>
+    var SwingData swing = SwingData.new()
+    
+    // Track last 3 structure labels
+    var string struct1  = "--"
+    var string struct2  = "--"
+    var string struct3  = "--"
+    
+    var int highType    = 0
+    var int lowType     = 0
+    
+    if not na(pivotHigh)
+        swing.prevH := swing.currH
+        swing.currH := pivotHigh
+        if not na(swing.prevH)
+            highType := swing.currH > swing.prevH ? 1 : -1
+            struct3 := struct2
+            struct2 := struct1
+            struct1 := highType > 0 ? "HH" : "LH"
+    
+    if not na(pivotLow)
+        swing.prevL := swing.currL
+        swing.currL := pivotLow
+        if not na(swing.prevL)
+            lowType := swing.currL > swing.prevL ? 1 : -1
+            struct3 := struct2
+            struct2 := struct1
+            struct1 := lowType > 0 ? "HL" : "LL"
+    
+    // Real-time structure override
+    rtHighType = highType
+    rtLowType  = lowType
+    rtStruct1  = struct1
+    rtStruct2  = struct2
+    rtStruct3  = struct3
+    
+    // If price breaks below previous swing low, that's a real-time LL
+    if not na(swing.prevL) and close < swing.prevL
+        rtLowType  := -1
+        rtStruct3  := struct2
+        rtStruct2  := struct1
+        rtStruct1  := "LL"
+    
+    // If price breaks above previous swing high, that's a real-time HH
+    if not na(swing.prevH) and close > swing.prevH
+        rtHighType := 1
+        rtStruct3  := struct2
+        rtStruct2  := struct1
+        rtStruct1  := "HH"
+    
+    structureBias = 0
+    if rtHighType == 1 and rtLowType == 1
+        structureBias := 1
+    else if rtHighType == -1 and rtLowType == -1
+        structureBias := -1
+    
+    [rtHighType, rtLowType, structureBias, rtStruct1, rtStruct2, rtStruct3]
+findNearestZone(array<ZoneBlock> zones) =>
+    nearestBullDist = 100000.0
+    nearestBearDist = 100000.0
+    
+    zoneCount = zones.size()
+    if zoneCount > 0
+        for i = 0 to zoneCount - 1
+            zone = zones.get(i)
+            if zone.dir == 1
+                dist = zone.top - close
+                if math.abs(dist) < math.abs(nearestBullDist)
+                    nearestBullDist := dist
+            else
+                dist = zone.bottom - close
+                if math.abs(dist) < math.abs(nearestBearDist)
+                    nearestBearDist := dist
+    
+    nearestDir  = 0
+    nearestDist = 0.0
+    
+    if math.abs(nearestBullDist) < math.abs(nearestBearDist) and math.abs(nearestBullDist) < 100000.0
+        nearestDir  := 1
+        nearestDist := nearestBullDist
+    else if math.abs(nearestBearDist) < 100000.0
+        nearestDir  := -1
+        nearestDist := nearestBearDist
+    
+    [nearestDir, nearestDist]
+
+mitigateOBs(array<ZoneBlock> obs) =>
+    obCount = obs.size()
+    if obCount > 0
+        for i = obCount - 1 to 0
+            ob = obs.get(i)
+            if ob.dir == 1 and close < ob.bottom
+                obs.remove(i)
+            else if ob.dir == -1 and close > ob.top
+                obs.remove(i)
+
+mitigateFVGs(array<ZoneBlock> fvgs) =>
+    fvgCount = fvgs.size()
+    if fvgCount > 0
+        for i = fvgCount - 1 to 0
+            fvg = fvgs.get(i)
+            if fvg.dir == 1 and low < fvg.bottom
+                fvgs.remove(i)
+            else if fvg.dir == -1 and high > fvg.top
+                fvgs.remove(i)
+
+limitArraySize(array<ZoneBlock> arr, int maxSize) =>
+    if arr.size() > maxSize
+        arr.pop()
+
+limitSwingLabels(array<SwingLabel> arr, int maxSize) =>
+    if arr.size() > maxSize
+        arr.shift()
+
+findLowestCandle(int barsBack) =>
+    search = CandleSearch.new(low, high, bar_index, barsBack)
+    for i = 0 to math.max(0, math.min(barsBack, 50))
+        if low[i] < search.price
+            search.price      := low[i]
+            search.otherPrice := high[i]
+            search.barIdx     := bar_index - i
+    search
+
+findHighestCandle(int barsBack) =>
+    search = CandleSearch.new(high, low, bar_index, barsBack)
+    for i = 0 to math.max(0, math.min(barsBack, 50))
+        if high[i] > search.price
+            search.price      := high[i]
+            search.otherPrice := low[i]
+            search.barIdx     := bar_index - i
+    search
+
+hasOverlappingOB(int dir, float top, float bottom, array<ZoneBlock> obs) =>
+    overlaps = false
+    for ob in obs
+        if ob.dir == dir and top >= ob.bottom and bottom <= ob.top
+            overlaps := true
+            break
+    overlaps
+
+detectOB(int dir, int pivotBar, array<ZoneBlock> obs, int maxOBs, ZoneResult result) =>
+    barsBack = bar_index - pivotBar - 1
+    search   = dir > 0 ? findLowestCandle(barsBack) : findHighestCandle(barsBack)
+    
+    newTop    = dir > 0 ? search.otherPrice : search.price
+    newBottom = dir > 0 ? search.price      : search.otherPrice
+    
+    if not hasOverlappingOB(dir, newTop, newBottom, obs)
+        result.dir    := dir
+        result.top    := newTop
+        result.bottom := newBottom
+        result.barIdx := search.barIdx
+        result.isNew  := true
+        
+        obs.unshift(ZoneBlock.new(dir, newTop, newBottom, search.barIdx))
+        limitArraySize(obs, maxOBs)
+
+detectOBSimple(int dir, int pivotBar, array<ZoneBlock> obs, int maxOBs) =>
+    barsBack = bar_index - pivotBar - 1
+    search   = dir > 0 ? findLowestCandle(barsBack) : findHighestCandle(barsBack)
+    top      = dir > 0 ? search.otherPrice : search.price
+    bottom   = dir > 0 ? search.price      : search.otherPrice
+    
+    if not hasOverlappingOB(dir, top, bottom, obs)
+        obs.unshift(ZoneBlock.new(dir, top, bottom, search.barIdx))
+        limitArraySize(obs, maxOBs)
+
+
+trackPivotBreaks(PivotData pivot) =>
+    bullBreak = false
+    bearBreak = false
+    bullBar   = 0
+    bearBar   = 0
+    
+    // Track new pivots
+    if not na(pivotHigh)
+        pivot.lastPH    := pivotHigh
+        pivot.lastPHBar := bar_index - swingLength
+    
+    if not na(pivotLow)
+        pivot.lastPL    := pivotLow
+        pivot.lastPLBar := bar_index - swingLength
+    
+
+    if isBreakAbove(pivot.lastPH) and not na(pivot.lastPHBar)
+        bullBreak := true
+        bullBar   := pivot.lastPHBar
+        pivot.lastPH    := na
+        pivot.lastPHBar := na
+    
+    if isBreakBelow(pivot.lastPL) and not na(pivot.lastPLBar)
+        bearBreak := true
+        bearBar   := pivot.lastPLBar
+        pivot.lastPL    := na
+        pivot.lastPLBar := na
+    
+    [bullBreak, bullBar, bearBreak, bearBar]
+
+
+calcOrderBlock(maxOBs) =>
+    var PivotData        pivot  = PivotData.new()
+    var array<ZoneBlock> obs    = array.new<ZoneBlock>()
+    var ZoneResult       result = ZoneResult.new()
+    
+    [bullBreak, bullBar, bearBreak, bearBar] = trackPivotBreaks(pivot)
+    
+    result.isNew := false
+    
+    if bullBreak
+        detectOB(1, bullBar, obs, maxOBs, result)
+    
+    if bearBreak
+        detectOB(-1, bearBar, obs, maxOBs, result)
+    
+    mitigateOBs(obs)
+    [nearestDir, nearestDist] = findNearestZone(obs)
+    
+    [result.dir, result.top, result.bottom, result.isNew, nearestDir, nearestDist] 
+
+
+detectFVGSignal() =>
+    fvgDir    = 0
+    fvgTop    = 0.0
+    fvgBottom = 0.0
+    fvgBar    = 0
+    
+    
+    if bullFVG
+        fvgDir    := 1
+        fvgTop    := low[1]
+        fvgBottom := high[3]
+        fvgBar    := bar_index - 3
+    
+    // Bear FVG: gap down
+    if bearFVG
+        fvgDir    := -1
+        fvgTop    := low[3]
+        fvgBottom := high[1]
+        fvgBar    := bar_index - 3
+    
+    [fvgDir, fvgTop, fvgBottom, fvgBar]
+
+calcFVG(maxFVGs) =>
+    var array<ZoneBlock> fvgs = array.new<ZoneBlock>()
+    
+    [fvgDir, fvgTop, fvgBottom, fvgBar] = detectFVGSignal()
+    
+    if fvgDir != 0
+        fvgs.unshift(ZoneBlock.new(fvgDir, fvgTop, fvgBottom, fvgBar))
+        limitArraySize(fvgs, maxFVGs)
+    
+    mitigateFVGs(fvgs)
+    [nearestDir, nearestDist] = findNearestZone(fvgs)
+    
+    [fvgDir, fvgTop, fvgBottom, fvgDir != 0, nearestDir, nearestDist]
+
+[currSwingH, currSwingL, _currSwingBias, currNewSwingH,     currNewSwingL,      currPrevSwingH,     currPrevSwingL, currReclaimLow, currReclaimHigh  ]   = calcSwingHL()
+[currObDir,  currObTop,  currObBottom,   currNewOB,         _currObNearDir,     _currObNearDist ]                       = calcOrderBlock(obLookback)
+[currFvgDir, currFvgTop, currFvgBottom,  currNewFVG,        _currFvgNearDir,    _currFvgNearDist]                       = calcFVG(fvgLookback)
+
+var array<ZoneBlock> currTfOBs   = array.new<ZoneBlock>()
+var array<box>       obBoxes     = array.new<box>()
+var PivotData        currTfPivot = PivotData.new()
+
+[currBullBreak, currBullBar, currBearBreak, currBearBar] = trackPivotBreaks(currTfPivot)
+
+if currBullBreak
+    detectOBSimple(1, currBullBar, currTfOBs, obLookback)
+
+if currBearBreak
+    detectOBSimple(-1, currBearBar, currTfOBs, obLookback)
+
+mitigateOBs(currTfOBs)
+
+var array<ZoneBlock> currTfFvgs = array.new<ZoneBlock>()
+var array<box>       fvgBoxes   = array.new<box>()
+
+[currFvgSigDir, currFvgSigTop, currFvgSigBottom, currFvgSigBar] = detectFVGSignal()
+
+if currFvgSigDir != 0
+    currTfFvgs.unshift(ZoneBlock.new(currFvgSigDir, currFvgSigTop, currFvgSigBottom, currFvgSigBar))
+    limitArraySize(currTfFvgs, fvgLookback)
+
+mitigateFVGs(currTfFvgs)
+
+// Track swing labels
+var SwingLineData     swingLines  = SwingLineData.new()
+var array<SwingLabel> swingLabels = array.new<SwingLabel>()
+
+if currNewSwingH
+    swingLines.lastHBar := bar_index - swingLength
+    
+    labelText  = "HH"
+    labelColor = color.new(swingBullColor, 80)
+    labelTextColor = swingBullColor
+    if not na(currPrevSwingH) and currSwingH < currPrevSwingH
+        labelText  := "LH"
+        labelColor := color.new(swingBearColor, 80)
+        labelTextColor := swingBearColor
+    swingLabels.push(SwingLabel.new(bar_index - swingLength, currSwingH, labelText, true, labelColor, labelTextColor))
+    limitSwingLabels(swingLabels, swingLabelLookback)
+
+if currNewSwingL
+    swingLines.lastLBar := bar_index - swingLength
+    
+    labelText  = "HL"
+    labelColor = color.new(swingBullColor, 80)
+    labelTextColor = swingBullColor
+    if not na(currPrevSwingL) and currSwingL < currPrevSwingL
+        labelText  := "LL"
+        labelColor := color.new(swingBearColor, 80)
+        labelTextColor := swingBearColor
+    swingLabels.push(SwingLabel.new(bar_index - swingLength, currSwingL, labelText, false, labelColor, labelTextColor))
+    limitSwingLabels(swingLabels, swingLabelLookback)
+
+calcAll() =>
+   // [trendDir, trendDist]                                                                               = calcTrend()
+    [swingH, swingL, _swingBias, _newSwingH, _newSwingL, _prevSwingH, _prevSwingL, reclaimLow, reclaimHigh] = calcSwingHL()
+    [_highType, _lowType, structBias, struct1, struct2, struct3]                                        = calcStructure()
+    [_obDir,  _obTop,  _obBottom,  _newOB,  obNearDir,  obNearDist]                                     = calcOrderBlock(obLookback)
+    [_fvgDir, _fvgTop, _fvgBottom, _newFVG, fvgNearDir, fvgNearDist]                                    = calcFVG(fvgLookback)
+    //[trendDir, trendDist, swingH, swingL, structBias, struct1, struct2, struct3, obNearDir, obNearDist, fvgNearDir, fvgNearDist, reclaimLow, reclaimHigh]
+
+tfActive(enabled, tf) => enabled and timeframe.in_seconds() <= timeframe.in_seconds(tf)
+
+// Draw Order Blocks
+if showOB and barstate.islast
+    for b in obBoxes
+        b.delete()
+    obBoxes.clear()
+    
+    obCount = currTfOBs.size()
+    for i = 0 to obCount - 1
+        ob       = currTfOBs.get(i)
+        obColor  = ob.dir > 0 ? color.new(obBullColor, 80) : color.new(obBearColor, 80)
+        obBorder = ob.dir > 0 ? obBullColor : obBearColor
+        
+        newBox = box.new(
+            left         = ob.barIdx,
+            top          = ob.top,
+            right        = bar_index + obExtend,
+            bottom       = ob.bottom,
+            border_color = obBorder,
+            border_width = 1,
+            bgcolor      = obColor,
+            text         = showOBLabels ? (ob.dir > 0 ? "OB ↑" : "OB ↓") : "",
+            text_color   = obBorder,
+            text_halign  = text.align_right,
+            text_valign  = text.align_center,
+            text_size    = size.small
+            )
+        obBoxes.unshift(newBox)
+
+// Draw FVGs
+if showFVG and barstate.islast
+    for b in fvgBoxes
+        b.delete()
+    fvgBoxes.clear()
+    
+    fvgCount = currTfFvgs.size()
+    if fvgCount > 0
+        for i = 0 to fvgCount - 1
+            fvg       = currTfFvgs.get(i)
+            fvgColorBg  = fvg.dir > 0 ? color.new(fvgBullColor, 85) : color.new(fvgBearColor, 85)
+            fvgBorderClr = fvg.dir > 0 ? color.new(fvgBullColor, 60) : color.new(fvgBearColor, 60)
+            
+            fvgTextClr = fvg.dir > 0 ? fvgBullColor : fvgBearColor
+            
+            newBox = box.new(
+                left         = fvg.barIdx,
+                top          = fvg.top,
+                right        = bar_index + fvgExtend,
+                bottom       = fvg.bottom,
+                bgcolor      = fvgColorBg,
+                border_width = 1,
+                border_style = line.style_dashed,
+                border_color = fvgBorderClr,
+                text         = showFVGLabels ? (fvg.dir > 0 ? "FVG ↑" : "FVG ↓") : "",
+                text_color   = fvgTextClr,
+                text_halign  = text.align_right,
+                text_valign  = text.align_center,
+                text_size    = size.small
+                )
+            fvgBoxes.unshift(newBox)
+
+// Draw Swing Labels (from array on last bar)
+var array<label> swingLabelObjs = array.new<label>()
+
+if showSwingLabels and barstate.islast
+    // Clear old labels
+    for lbl in swingLabelObjs
+        lbl.delete()
+    swingLabelObjs.clear()
+    
+    // Draw labels from array
+    for lbl in swingLabels
+        newLabel = label.new(
+            x         = lbl.x,
+            y         = lbl.y,
+            text      = lbl.txt,
+            yloc      = lbl.isHigh ? yloc.abovebar          : yloc.belowbar,
+            color     = lbl.clr,
+            style     = lbl.isHigh ? label.style_label_down : label.style_label_up,
+            textcolor = lbl.textClr,
+            size      = size.small
+            )
+        swingLabelObjs.push(newLabel)
+
+// Draw Swing Lines
+if showSwingLines and barstate.islast
+    swingLines.highLine.delete()
+    swingLines.lowLine.delete()
+    
+    if not na(currSwingH) and not na(swingLines.lastHBar)
+        swingLines.highLine := line.new(
+            x1    = swingLines.lastHBar,
+            y1    = currSwingH,
+            x2    = bar_index + swingLinesExtend,
+            y2    = currSwingH,
+            color = color.new(swingLineHighColor, 30),
+            style = getLineStyle(swingLineStyle),
+            width = 3
+            )
+    
+    if not na(currSwingL) and not na(swingLines.lastLBar)
+        swingLines.lowLine := line.new(
+            x1    = swingLines.lastLBar,
+            y1    = currSwingL,
+            x2    = bar_index + swingLinesExtend,
+            y2    = currSwingL,
+            color = color.new(swingLineLowColor, 30),
+            style = getLineStyle(swingLineStyle),
+            width = 3
+            )
+//#endregion VISUALIZATION
